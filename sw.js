@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pog-draft-v2';
+const CACHE_NAME = 'pog-draft-v3';
 const STATIC_ASSETS = [
   '/pog-senshu/',
   '/pog-senshu/index.html'
