@@ -350,8 +350,9 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
   <div style="padding-top:16px">
     <div class="conflict-alert">
       <strong>⚠️ 指名被り検出！</strong><br>
-      同じ母名で指名が重複しています。外れ指名を入力してください。
+      同じ母名で指名が重複しています。
     </div>
+    <div id="conflictOverview" style="margin-bottom:12px"></div>
     <div id="conflictContent"></div>
   </div>
 </div>
@@ -596,6 +597,14 @@ function subscribeAll() {
       })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_picks', filter: 'session_id=eq.' + state.sessionId },
       payload => { loadPicksAndRender(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'conflict_winners', filter: 'session_id=eq.' + state.sessionId },
+      async payload => {
+        const currentPage = document.querySelector('.page.active')?.id;
+        if (currentPage !== 'conflictPage') return;
+        await loadConflictWinners();
+        await loadPicksAndRender();
+        renderConflictPage();
+      })
     .subscribe();
 }
 
@@ -612,6 +621,7 @@ async function loadState() {
   state.session = sess;
   state.players = players || [];
   state.picks = picks || [];
+  if (sess?.status === 'conflict') await loadConflictWinners();
 }
 
 function startInputPoller() {
@@ -697,7 +707,7 @@ function renderByStatus(status) {
     if (!state.isHost) startRevealPoller();
     return;
   }
-  if (status === 'conflict') { showPage('conflictPage'); renderConflictPage(); return; }
+  if (status === 'conflict') { showPage('conflictPage'); renderConflictPage(); startConflictPoller(); return; }
   if (status === 'done') { showPage('finalPage'); renderFinal(); return; }
 }
 
@@ -809,6 +819,25 @@ async function submitPick() {
 }
 
 // ── REVEAL PAGE ──────────────────────────────────────────────
+function startConflictPoller() {
+  if (state._conflictPoller) clearInterval(state._conflictPoller);
+  state._conflictPoller = setInterval(async () => {
+    const currentPage = document.querySelector('.page.active')?.id;
+    if (currentPage !== 'conflictPage') { clearInterval(state._conflictPoller); return; }
+    await loadConflictWinners();
+    const { data: picks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
+    if (picks) state.picks = picks;
+    const { data: sess } = await sb.from('draft_sessions').select('status').eq('id', state.sessionId).single();
+    if (sess && sess.status !== 'conflict') {
+      clearInterval(state._conflictPoller);
+      await loadState();
+      renderByStatus(sess.status);
+      return;
+    }
+    renderConflictPage();
+  }, 2500);
+}
+
 function startRevealPoller() {
   if (state._revealPoller) clearInterval(state._revealPoller);
   state._revealPoller = setInterval(async () => {
@@ -1052,47 +1081,138 @@ function renderConflictPage() {
   const byMother = {};
   roundPicks.forEach(p => { const k = p.mother.toLowerCase(); if (!byMother[k]) byMother[k] = []; byMother[k].push(p); });
   const conflicts = Object.values(byMother).filter(g => g.length > 1);
-  const myConflict = conflicts.find(g => g.find(p => p.player_name === state.myName));
-  const myAlt = state.picks.find(p => p.player_name === state.myName && p.round === round && p.is_alt);
 
-  const el = document.getElementById('conflictContent');
-  if (!myConflict || myAlt) {
-    el.innerHTML = `<div class="card" style="text-align:center;padding:24px">
-      <div style="font-size:28px;margin-bottom:8px">${myAlt ? '✅' : '⏳'}</div>
-      <div style="font-size:14px">${myAlt ? '外れ指名を登録しました。他の参加者を待っています...' : 'あなたは被っていません。他の参加者の解決を待っています...'}</div>
+  // ── 全員に被り状況を表示 ──
+  const overviewEl = document.getElementById('conflictOverview');
+  overviewEl.innerHTML = conflicts.map(group => {
+    const names = group.map(p => p.player_name).join('、');
+    const winner = state.conflictWinners?.[group[0].mother.toLowerCase()];
+    return `<div class="card" style="padding:12px;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">母名：${group[0].mother}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">被り：${names}</div>
+      ${winner
+        ? `<div style="font-size:13px;color:var(--green);font-weight:600">✓ ${winner} が獲得</div>`
+        : (state.isHost
+          ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">どちらが獲得しますか？</div>
+             <div class="btn-row">${group.map(p => `
+               <button class="btn btn-outline btn-sm" onclick="setConflictWinner('${group[0].mother}','${p.player_name}')" style="flex:1;font-size:12px">${p.player_name}</button>`).join('')}
+             </div>`
+          : `<div style="font-size:12px;color:var(--muted)">⏳ ホストが勝者を選択中...</div>`
+        )
+      }
     </div>`;
-    // check if all resolved
-    if (state.isHost) {
-      const allResolved = conflicts.every(g => g.every(p => {
-        const alt = state.picks.find(pk => pk.player_name === p.player_name && pk.round === round && pk.is_alt);
-        return !!alt;
-      }));
-      if (allResolved) setTimeout(() => advanceRound(), 500);
-    }
+  }).join('');
+
+  // ── 自分が外れ入力が必要かチェック ──
+  const contentEl = document.getElementById('conflictContent');
+  const myConflicts = conflicts.filter(g => g.find(p => p.player_name === state.myName));
+
+  // 自分が被っていない
+  if (myConflicts.length === 0) {
+    contentEl.innerHTML = `<div class="card" style="text-align:center;padding:20px">
+      <div style="font-size:24px;margin-bottom:8px">👀</div>
+      <div style="font-size:14px">あなたの指名は被っていません。解決を待っています...</div>
+    </div>`;
+    checkConflictResolved(conflicts);
     return;
   }
 
-  const conflictedPick = myConflict.find(p => p.player_name === state.myName);
-  el.innerHTML = `<div class="card">
-    <div style="font-size:14px;margin-bottom:4px">あなたの指名「<strong>${conflictedPick.mother}</strong>」が被っています</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">外れ指名の母名を入力してください</div>
-    <div class="field">
-      <label>外れ指名の母名</label>
-      <input type="text" id="altMotherInput" placeholder="別の母馬名">
-    </div>
-    <div class="field">
-      <label>性別</label>
-      <div class="gender-toggle">
-        <button class="gender-btn" id="altBtnMale" onclick="setAltGender('牡')">♂ 牡</button>
-        <button class="gender-btn" id="altBtnFemale" onclick="setAltGender('牝')">♀ 牝</button>
-      </div>
-    </div>
-    <button class="btn btn-danger" onclick="submitAlt()">外れ指名を確定</button>
-    <div id="altError" class="error-text"></div>
+  // 自分が被っていて、勝者が決まっているかチェック
+  const myLosses = myConflicts.filter(g => {
+    const winner = state.conflictWinners?.[g[0].mother.toLowerCase()];
+    return winner && winner !== state.myName; // 自分が負けた被り
+  });
+  const myWins = myConflicts.filter(g => {
+    const winner = state.conflictWinners?.[g[0].mother.toLowerCase()];
+    return winner && winner === state.myName; // 自分が勝った
+  });
+  const myPending = myConflicts.filter(g => !state.conflictWinners?.[g[0].mother.toLowerCase()]);
+
+  // 勝者未決定あり
+  if (myPending.length > 0) {
+    contentEl.innerHTML = `<div class="card" style="text-align:center;padding:20px">
+      <div style="font-size:24px;margin-bottom:8px">⏳</div>
+      <div style="font-size:14px">${state.isHost ? '上で勝者を選んでください' : 'ホストが勝者を選択中...'}</div>
+    </div>`;
+    return;
+  }
+
+  // 自分の負け分の外れ指名入力
+  if (myLosses.length > 0) {
+    const notYetAlt = myLosses.filter(g => {
+      const mother = g[0].mother;
+      return !state.picks.find(pk => pk.player_name === state.myName && pk.round === round && pk.is_alt && pk.conflict_mother === mother);
+    });
+    if (notYetAlt.length > 0) {
+      const g = notYetAlt[0];
+      contentEl.innerHTML = `<div class="card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">「${g[0].mother}」は${state.conflictWinners[g[0].mother.toLowerCase()]}が獲得しました</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px">代わりの指名馬の母名を入力してください</div>
+        <div class="field"><label>外れ指名の母名</label>
+          <input type="text" id="altMotherInput" placeholder="別の母馬名">
+        </div>
+        <div class="field"><label>性別</label>
+          <div class="gender-toggle">
+            <button class="gender-btn" id="altBtnMale" onclick="setAltGender('牡')">♂ 牡</button>
+            <button class="gender-btn" id="altBtnFemale" onclick="setAltGender('牝')">♀ 牝</button>
+          </div>
+        </div>
+        <input type="hidden" id="altConflictMother" value="${g[0].mother}">
+        <button class="btn btn-primary" onclick="submitAlt()">外れ指名を確定</button>
+        <div id="altError" class="error-text"></div>
+      </div>`;
+      state.conflictGenders[state.myName] = '';
+      return;
+    }
+  }
+
+  // 全部解決済み
+  contentEl.innerHTML = `<div class="card" style="text-align:center;padding:20px">
+    <div style="font-size:24px;margin-bottom:8px">✅</div>
+    <div style="font-size:14px">${myWins.length > 0 ? '🎉 獲得しました！' : '外れ指名を登録しました。'}他の参加者を待っています...</div>
   </div>`;
-  state.conflictGenders[state.myName] = '';
+  checkConflictResolved(conflicts);
 }
 
+async function setConflictWinner(mother, winnerName) {
+  if (!state.isHost) return;
+  const { error } = await sb.from('conflict_winners').upsert({
+    session_id: state.sessionId,
+    round: state.session.current_round,
+    mother: mother,
+    winner_name: winnerName
+  }, { onConflict: 'session_id,round,mother' });
+  if (error) { toast('エラー: ' + error.message); return; }
+  if (!state.conflictWinners) state.conflictWinners = {};
+  state.conflictWinners[mother.toLowerCase()] = winnerName;
+  renderConflictPage();
+}
+
+async function loadConflictWinners() {
+  const round = state.session?.current_round;
+  if (!round) return;
+  const { data } = await sb.from('conflict_winners').select('*').eq('session_id', state.sessionId).eq('round', round);
+  state.conflictWinners = {};
+  (data || []).forEach(w => { state.conflictWinners[w.mother.toLowerCase()] = w.winner_name; });
+}
+
+function checkConflictResolved(conflicts) {
+  if (!state.isHost) return;
+  const round = state.session.current_round;
+  // 全被りに勝者が決定済みか
+  const allWinnersSet = conflicts.every(g => state.conflictWinners?.[g[0].mother.toLowerCase()]);
+  if (!allWinnersSet) return;
+  // 敗者全員の外れ指名が入力済みか
+  const losers = [];
+  conflicts.forEach(g => {
+    const winner = state.conflictWinners[g[0].mother.toLowerCase()];
+    g.forEach(p => { if (p.player_name !== winner) losers.push({ name: p.player_name, mother: g[0].mother }); });
+  });
+  const allAltDone = losers.every(l =>
+    state.picks.find(pk => pk.player_name === l.name && pk.round === round && pk.is_alt)
+  );
+  if (allAltDone) setTimeout(() => advanceRound(), 500);
+}
 function setAltGender(g) {
   state.conflictGenders[state.myName] = g;
   document.getElementById('altBtnMale').className = 'gender-btn' + (g === '牡' ? ' active-male' : '');
@@ -1102,6 +1222,7 @@ function setAltGender(g) {
 async function submitAlt() {
   const mother = document.getElementById('altMotherInput')?.value?.trim();
   const gender = state.conflictGenders[state.myName];
+  const conflictMother = document.getElementById('altConflictMother')?.value || '';
   const errEl = document.getElementById('altError');
   if (!mother) { errEl.textContent = '母名を入力してください'; return; }
   if (!gender) { errEl.textContent = '性別を選択してください'; return; }
@@ -1114,18 +1235,6 @@ async function submitAlt() {
   toast('外れ指名を登録しました');
   await loadState();
   renderConflictPage();
-  // host checks resolution
-  if (state.isHost) {
-    const roundPicks = state.picks.filter(p => p.round === round && !p.is_alt);
-    const byMother = {};
-    roundPicks.forEach(p => { const k = p.mother.toLowerCase(); if (!byMother[k]) byMother[k] = []; byMother[k].push(p); });
-    const conflicts = Object.values(byMother).filter(g => g.length > 1);
-    const allResolved = conflicts.every(g => g.every(p => {
-      const alt = state.picks.find(pk => pk.player_name === p.player_name && pk.round === round && pk.is_alt);
-      return !!alt;
-    }));
-    if (allResolved) await advanceRound();
-  }
 }
 
 // ── STANDINGS ────────────────────────────────────────────────
