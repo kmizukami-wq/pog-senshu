@@ -909,6 +909,11 @@ function startStatusWatcher() {
       const currentPage = document.querySelector('.page.active')?.id;
       const expectedPage = pageForStatus[sess.status];
 
+      // 外れ指名フォームが表示中はステータスウォッチャーも停止
+      const myKey = state.myName?.replace(/\s/g, '_');
+      const hasMyForm = myKey && !!document.getElementById('altMotherInput_' + myKey);
+      if (hasMyForm) return;
+
       // 現在のページとDBのステータスが食い違っていたら遷移
       if (expectedPage && currentPage !== expectedPage) {
         state.session = sess;
@@ -960,7 +965,12 @@ function startConflictPoller() {
       return;
     }
 
-    renderConflictPage();
+    // 自分の外れ指名フォームが表示中は再描画しない（入力が消えるのを防ぐ）
+    const myKey = state.myName?.replace(/\s/g, '_');
+    const hasMyForm = myKey && !!document.getElementById('altMotherInput_' + myKey);
+    if (!hasMyForm) {
+      renderConflictPage();
+    }
   }, 1500);
 }
 
