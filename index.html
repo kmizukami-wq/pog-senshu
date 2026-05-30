@@ -5,6 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>🏇 POG ドラフト会議</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700;900&family=Cormorant+Garamond:wght@600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
 <link rel="manifest" href="manifest.json">
 <!-- OGP -->
 <meta property="og:title" content="🏇 POG ドラフト会議">
@@ -125,25 +126,35 @@ label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-wei
 .si-wait{background:var(--border);}
 
 /* REVEAL OVERLAY */
-#revealOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.95);
+#revealOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.97);
   display:none;align-items:center;justify-content:center;z-index:9999;padding:20px;}
-.reveal-card{background:linear-gradient(135deg,#0d2e1a,#1a4a2e);
-  border:2px solid #f5d76e;border-radius:28px;padding:44px 32px;
-  text-align:center;max-width:420px;width:94%;position:relative;overflow:hidden;
-  animation:revealIn 0.5s cubic-bezier(0.34,1.56,0.64,1);}
-@keyframes revealIn{from{transform:scale(0.7);opacity:0}to{transform:scale(1);opacity:1}}
-.reveal-card::before{content:'🐎';font-size:100px;position:absolute;
-  bottom:-30px;right:-20px;opacity:0.1;transform:scaleX(-1);}
-.reveal-round-label{color:rgba(245,215,110,0.7);font-size:11px;letter-spacing:3px;margin-bottom:6px;}
-.reveal-owner{color:white;font-size:36px;font-weight:800;margin-bottom:20px;
-  text-shadow:0 0 20px rgba(245,215,110,0.3);}
-.reveal-horse-box{background:rgba(245,215,110,0.1);border:1px solid rgba(245,215,110,0.3);
-  border-radius:14px;padding:20px;margin-bottom:16px;}
-.reveal-mother{color:#f5d76e;font-size:38px;font-weight:900;margin-bottom:12px;letter-spacing:2px;}
-.reveal-gender{font-size:24px;font-weight:700;}
-.countdown-number{font-size:120px;font-weight:900;color:#f5d76e;line-height:1;
-  text-shadow:0 0 40px rgba(245,215,110,0.6);animation:countPulse 0.8s ease;}
-@keyframes countPulse{0%{transform:scale(1.4);opacity:0}50%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+.reveal-card{background:#080c18;border:1px solid #b8982a;border-radius:20px;
+  width:94%;max-width:400px;overflow:hidden;
+  animation:revealIn 0.4s cubic-bezier(0.34,1.56,0.64,1);}
+@keyframes revealIn{from{transform:scale(0.85);opacity:0}to{transform:scale(1);opacity:1}}
+.reveal-top-line{height:3px;background:linear-gradient(90deg,transparent,#b8982a,#f0d060,#b8982a,transparent);}
+.reveal-inner{padding:24px 24px 20px;}
+.reveal-round-label{font-family:"Bebas Neue",sans-serif;font-size:11px;letter-spacing:5px;
+  color:#b8982a;display:flex;align-items:center;gap:10px;margin-bottom:18px;}
+.reveal-round-label::before,.reveal-round-label::after{content:"";flex:1;height:1px;background:rgba(184,152,42,0.3);}
+.reveal-owner{font-family:"Cormorant Garamond",serif;font-size:clamp(22px,6vw,28px);
+  font-weight:700;color:rgba(255,255,255,0.85);letter-spacing:5px;text-align:center;margin-bottom:20px;}
+.reveal-horse-box{text-align:center;margin-bottom:18px;}
+.reveal-mother-label{font-size:10px;letter-spacing:3px;color:rgba(240,208,96,0.45);margin-bottom:8px;}
+.reveal-mother{font-family:"Noto Serif JP",serif;font-size:clamp(42px,12vw,64px);
+  font-weight:900;color:#f0d060;line-height:1;letter-spacing:2px;}
+.reveal-gender{margin-top:18px;display:flex;align-items:center;justify-content:center;}
+.reveal-gender-pill{display:inline-flex;align-items:center;gap:8px;
+  border:1px solid rgba(184,152,42,0.4);border-radius:4px;padding:8px 24px;}
+.reveal-gender-sym{font-size:22px;}
+.reveal-gender-label{font-family:"Bebas Neue",sans-serif;font-size:18px;letter-spacing:3px;}
+.reveal-footer{padding:12px 24px;border-top:1px solid rgba(184,152,42,0.1);
+  display:flex;justify-content:space-between;align-items:center;gap:12px;}
+.reveal-timer{font-size:10px;letter-spacing:2px;color:#444;white-space:nowrap;}
+.countdown-number{font-family:"Bebas Neue",sans-serif;font-size:clamp(80px,22vw,120px);
+  font-weight:900;color:#f0d060;line-height:1;text-align:center;padding:20px 0;
+  animation:countPulse 0.8s ease;}
+@keyframes countPulse{0%{transform:scale(1.4);opacity:0}50%{transform:scale(1.05)}100%{transform:scale(1);opacity:1}}
 .reveal-timer{color:rgba(255,255,255,0.4);font-size:13px;}
 .timer-bar{height:3px;background:rgba(255,255,255,0.1);border-radius:2px;margin-top:12px;overflow:hidden;}
 .timer-fill{height:100%;background:#f5d76e;border-radius:2px;transition:width 1s linear;}
@@ -460,19 +471,30 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
 
 <!-- REVEAL OVERLAY -->
 <div id="revealOverlay">
-  <div class="reveal-card" style="max-width:420px;width:94%">
-    <div id="countdownDisplay" style="display:none;padding:20px 0">
+  <div class="reveal-card">
+    <div id="countdownDisplay" style="display:none">
       <div class="countdown-number" id="countdownNum">3</div>
     </div>
-    <div id="revealContent">
-      <div class="reveal-round-label" id="revealRoundLabel">第1巡</div>
-      <div class="reveal-owner" id="revealOwnerName">—</div>
-      <div class="reveal-horse-box">
-        <div class="reveal-mother" id="revealMother">—</div>
-        <div class="reveal-gender" id="revealGenderText">—</div>
+    <div id="revealContent" style="display:none">
+      <div class="reveal-top-line"></div>
+      <div class="reveal-inner">
+        <div class="reveal-round-label" id="revealRoundLabel">第 1 巡</div>
+        <div class="reveal-owner" id="revealOwnerName">—</div>
+        <div class="reveal-horse-box">
+          <div class="reveal-mother-label">母馬名</div>
+          <div class="reveal-mother" id="revealMother">—</div>
+          <div class="reveal-gender" id="revealGenderWrap">
+            <div class="reveal-gender-pill">
+              <span class="reveal-gender-sym" id="revealGenderSym">♂</span>
+              <span class="reveal-gender-label" id="revealGenderText">牡馬</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="reveal-timer" id="revealTimerText">5秒後に次へ</div>
-      <div class="timer-bar"><div class="timer-fill" id="timerFill" style="width:100%"></div></div>
+      <div class="reveal-footer">
+        <div class="reveal-timer" id="revealTimerText">5秒後に次へ</div>
+        <div class="timer-bar" style="flex:1"><div class="timer-fill" id="timerFill" style="width:100%"></div></div>
+      </div>
     </div>
   </div>
 </div>
@@ -1208,11 +1230,12 @@ function doReveal(idx) {
       document.getElementById('revealContent').style.display = 'block';
 
       // Step 1: 名前だけ表示
-      document.getElementById('revealRoundLabel').textContent = `第${state.session.current_round}巡`;
+      document.getElementById('revealRoundLabel').textContent = '第 ' + state.session.current_round + ' 巡';
       document.getElementById('revealOwnerName').textContent = player.name;
       document.getElementById('revealMother').textContent = '？？？';
-      document.getElementById('revealGenderText').textContent = '？';
-      document.getElementById('revealGenderText').style.color = 'rgba(255,255,255,0.3)';
+      document.getElementById('revealGenderSym').textContent = '？';
+      document.getElementById('revealGenderText').textContent = '？？';
+      document.getElementById('revealGenderWrap').style.opacity = '0.2';
 
       setTimerBar(nameTime);
       let secs = nameTime;
@@ -1224,8 +1247,11 @@ function doReveal(idx) {
           clearInterval(state.revealTimer);
       // Step 2: 馬名・性別を表示
       document.getElementById('revealMother').textContent = pick.mother;
-      document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '♂ 牡馬' : '♀ 牝馬';
-      document.getElementById('revealGenderText').style.color = pick.gender === '牡' ? '#60a5fa' : '#f472b6';
+      document.getElementById('revealGenderSym').textContent = pick.gender === '牡' ? '♂' : '♀';
+      document.getElementById('revealGenderSym').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
+      document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '牡馬' : '牝馬';
+      document.getElementById('revealGenderText').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
+      document.getElementById('revealGenderWrap').style.opacity = '1';
       // YouTube検索結果ページをiframeで表示（APIキー不要）
       setTimerBar(horseTime);
       let secs2 = horseTime;
