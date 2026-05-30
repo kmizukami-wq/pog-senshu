@@ -496,13 +496,13 @@ async function joinSession() {
 }
 
 // ── LOBBY ────────────────────────────────────────────────────
-function enterLobby() {
+async function enterLobby() {
   showPage('lobbyPage');
   document.getElementById('lobbyCode').textContent = state.sessionId;
   document.getElementById('lobbyHostActions').style.display = state.isHost ? 'block' : 'none';
   document.getElementById('lobbyGuestMsg').style.display = state.isHost ? 'none' : 'block';
   subscribeAll();
-  loadLobby();
+  await loadLobby();
   // Poll every 3s as fallback for realtime
   if (state._lobbyPoller) clearInterval(state._lobbyPoller);
   state._lobbyPoller = setInterval(async () => {
@@ -596,7 +596,7 @@ async function loadPicksAndRender() {
 }
 
 function renderByStatus(status) {
-  if (status === 'lobby') { enterLobby(); return; }
+  if (status === 'lobby') { enterLobby(); return; } // enterLobby is async but fire-and-forget here is OK since it awaits loadLobby internally
   if (status === 'inputting') { showPage('inputPage'); renderInputPage(); return; }
   if (status === 'revealing') { showPage('revealPage'); renderRevealPage(); return; }
   if (status === 'conflict') { showPage('conflictPage'); renderConflictPage(); return; }
@@ -957,9 +957,14 @@ if (params.get('session') && params.get('name')) {
     if (state.session) {
       document.getElementById('sessionBadge').textContent = 'ルーム: ' + state.sessionId;
       document.getElementById('sessionBadge').style.display = 'inline-block';
-      subscribeAll();
       subscribeReveal();
-      renderByStatus(state.session.status);
+      // If lobby, enterLobby handles subscribeAll + player list render
+      if (state.session.status === 'lobby') {
+        await enterLobby();
+      } else {
+        subscribeAll();
+        renderByStatus(state.session.status);
+      }
     }
   })();
 }
