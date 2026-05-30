@@ -301,7 +301,7 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
       </div>
       <div class="field">
         <label>母馬名</label>
-        <input type="text" id="motherInput" placeholder="例：ウオッカ" oninput="applyZenkaku(this);onMotherInput()" inputmode="text" oncompositionstart="this._isComposing=true" oncompositionend="this._isComposing=false;applyZenkaku(this);onMotherInput()">
+        <input type="text" id="motherInput" placeholder="例：ウオッカ" inputmode="text">
         <div class="verify-status" id="verifyStatus"></div>
       </div>
       <div class="field">
@@ -637,7 +637,16 @@ async function handleSessionChange(newSession) {
     handleSessionClosed();
     return;
   }
-
+  // 状況ページ・入力フォーム表示中は画面遷移をスキップ
+  if (state._standingsOpen) {
+    state.session = newSession;
+    return;
+  }
+  const hasAltForm = !!document.querySelector('.fg-confirm, [id^="alt_mother_"]');
+  if (hasAltForm) {
+    state.session = newSession;
+    return;
+  }
   state.session = newSession;
   await loadState();
   renderByStatus(newSession.status);
@@ -698,7 +707,7 @@ async function loadPicksAndRender() {
   const { data: picks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
   state.picks = picks || [];
   const currentPage = document.querySelector('.page.active')?.id;
-  if (currentPage === 'inputPage') renderInputPage();
+  if (currentPage === 'inputPage' && !state._standingsOpen) renderInputPage();
   if (currentPage === 'standingsPage') renderStandings();
 }
 
@@ -851,7 +860,10 @@ async function submitPick() {
   });
   if (error) { errEl.textContent = '登録エラー: ' + error.message; return; }
 
-  document.getElementById('motherInput').value = '';
+  const mi = document.getElementById('motherInput');
+  mi.value = '';
+  bindZenkaku(mi);
+  mi.addEventListener('input', onMotherInput, true);
   document.getElementById('verifyStatus').textContent = '';
   state.selectedGender = '';
   selectGender('');
@@ -1370,7 +1382,7 @@ function renderConflictPage() {
           const safeKey = key.replace(/[^a-zA-Z0-9]/g, '_');
           inner += '<div style="padding:12px;background:var(--gold-l);border-radius:8px;margin-bottom:6px;border:1px solid #e8c84a">';
           inner += '<div style="font-size:13px;font-weight:600;margin-bottom:8px">あなたの外れ指名を入力してください</div>';
-          inner += '<div class="field" style="margin-bottom:8px"><input type="text" id="alt_mother_' + safeKey + '" placeholder="別の母馬名" oninput="applyZenkaku(this)" inputmode="text" oncompositionstart="this._isComposing=true" oncompositionend="this._isComposing=false;applyZenkaku(this)" style="background:white"></div>';
+          inner += '<div class="field" style="margin-bottom:8px"><input type="text" id="alt_mother_' + safeKey + '" placeholder="別の母馬名" inputmode="text" style="background:white" class="zenkaku-input"></div>';
           inner += '<div class="gender-toggle" style="margin-bottom:8px">';
           inner += '<button class="gender-btn alt-male-btn" data-player="' + p.player_name + '">♂ 牡</button>';
           inner += '<button class="gender-btn alt-female-btn" data-player="' + p.player_name + '">♀ 牝</button>';
@@ -1411,6 +1423,9 @@ function renderConflictPage() {
   }
 
   el.innerHTML = lines.join('');
+
+  // 全角変換を動的inputに適用
+  el.querySelectorAll('.zenkaku-input').forEach(inp => bindZenkaku(inp));
 
   // data属性でイベント設定
   el.querySelectorAll('.approve-btn').forEach(btn => {
@@ -1711,11 +1726,8 @@ function exportCSV() {
 // ── 全角変換 ───────────────────────────────────────────────────
 function toZenkaku(str) {
   return str
-    // 半角英数字・記号 → 全角
     .replace(/[A-Za-z0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0))
-    // 半角スペース → 全角スペース
     .replace(/ /g, '　')
-    // 半角カタカナ → 全角カタカナ
     .replace(/[｡-ﾟ]/g, c => {
       const map = {
         '｡':'。','｢':'「','｣':'」','､':'、','･':'・',
@@ -1736,23 +1748,24 @@ function toZenkaku(str) {
     });
 }
 
+// oninput では呼ばず、addEventListener で管理
 function applyZenkaku(el) {
-  // IME入力中（日本語変換中）はスキップ
   if (el._isComposing) return;
   const pos = el.selectionStart;
   const converted = toZenkaku(el.value);
   if (converted !== el.value) {
     el.value = converted;
-    el.setSelectionRange(pos, pos);
+    try { el.setSelectionRange(pos, pos); } catch(e) {}
   }
 }
 
-function setupZenkakuInput(el) {
+function bindZenkaku(el) {
+  if (el._zenkakuBound) return;
+  el._zenkakuBound = true;
+  el._isComposing = false;
   el.addEventListener('compositionstart', () => { el._isComposing = true; });
-  el.addEventListener('compositionend', () => {
-    el._isComposing = false;
-    applyZenkaku(el);
-  });
+  el.addEventListener('compositionend', () => { el._isComposing = false; applyZenkaku(el); });
+  el.addEventListener('input', () => { applyZenkaku(el); });
 }
 
 // ── RESUME ───────────────────────────────────────────────────
