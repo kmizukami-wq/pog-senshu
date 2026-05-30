@@ -602,10 +602,11 @@ function startInputPoller() {
     if (sessRes.data) state.session = sessRes.data;
 
     // セッションが既に次フェーズへ進んでいたら遷移
-    if (sessRes.data && sessRes.data.status !== 'inputting') {
+    const newStatus = sessRes.data?.status;
+    if (newStatus && newStatus !== 'inputting') {
       clearInterval(state._inputPoller);
-      await loadState();
-      renderByStatus(sessRes.data.status);
+      // state already updated above
+      renderByStatus(newStatus);
       return;
     }
 
@@ -619,6 +620,8 @@ function startInputPoller() {
         if (state.isHost) {
           clearInterval(state._inputPoller);
           await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
+          state.session.status = 'revealing';
+          renderByStatus('revealing');
         }
       }
     }
@@ -660,7 +663,13 @@ async function loadPicksAndRender() {
 function renderByStatus(status) {
   if (status === 'lobby') { enterLobby(); return; } // enterLobby is async but fire-and-forget here is OK since it awaits loadLobby internally
   if (status === 'inputting') { showPage('inputPage'); renderInputPage(); startInputPoller(); return; }
-  if (status === 'revealing') { showPage('revealPage'); renderRevealPage(); return; }
+  if (status === 'revealing') {
+    showPage('revealPage');
+    state._revealStarted = false;
+    renderRevealPage();
+    if (!state.isHost) startRevealPoller();
+    return;
+  }
   if (status === 'conflict') { showPage('conflictPage'); renderConflictPage(); return; }
   if (status === 'done') { showPage('finalPage'); renderFinal(); return; }
 }
@@ -773,6 +782,21 @@ async function submitPick() {
 }
 
 // ── REVEAL PAGE ──────────────────────────────────────────────
+function startRevealPoller() {
+  if (state._revealPoller) clearInterval(state._revealPoller);
+  state._revealPoller = setInterval(async () => {
+    const currentPage = document.querySelector('.page.active')?.id;
+    if (currentPage !== 'revealPage') { clearInterval(state._revealPoller); return; }
+    const { data: sess } = await sb.from('draft_sessions').select('*').eq('id', state.sessionId).single();
+    if (sess?.status === 'revealing_active' && !state._revealStarted) {
+      clearInterval(state._revealPoller);
+      state._revealStarted = true;
+      await loadState();
+      doReveal(0);
+    }
+  }, 1000);
+}
+
 function renderRevealPage() {
   showPage('revealPage');
   const queue = document.getElementById('revealQueue');
@@ -791,6 +815,7 @@ function renderRevealPage() {
 async function startReveal() {
   if (!state.isHost) return;
   await sb.from('draft_sessions').update({ reveal_idx: 0, status: 'revealing_active' }).eq('id', state.sessionId);
+  await loadState();
   doReveal(0);
 }
 
