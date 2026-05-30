@@ -21,6 +21,8 @@
 }
 body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sans-serif;
   background:var(--bg);color:var(--text);min-height:100vh;}
+.footer-credit{text-align:center;padding:20px 0 max(20px,env(safe-area-inset-bottom));
+  font-size:11px;color:var(--subtle);letter-spacing:2px;font-weight:500;}
 @keyframes horseRun{0%{transform:scaleX(-1) translateX(0)}100%{transform:scaleX(-1) translateX(calc(100vw + 200px))}}
 @keyframes groupRun{0%{transform:scaleX(-1) translateX(0)}100%{transform:scaleX(-1) translateX(calc(100vw + 400px))}}
 @keyframes gallop{0%,100%{transform:scaleX(-1) translateY(0)}50%{transform:scaleX(-1) translateY(-8px)}}
@@ -249,8 +251,8 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
         <label>参加人数</label>
         <select id="playerCount">
           <option value="2">2人</option><option value="3">3人</option>
-          <option value="4">4人</option><option value="5" selected>5人</option>
-          <option value="6">6人</option><option value="7">7人</option><option value="8">8人</option>
+          <option value="4">4人</option><option value="5">5人</option>
+          <option value="6" selected>6人</option><option value="7">7人</option><option value="8">8人</option>
         </select>
       </div>
       <div class="field">
@@ -261,11 +263,11 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
       </div>
       <div class="field">
         <label>名前表示時間（秒）</label>
-        <input type="number" id="nameTime" value="3" min="1" max="30">
+        <input type="number" id="nameTime" value="5" min="1" max="30">
       </div>
       <div class="field">
         <label>馬名・性別表示時間（秒）</label>
-        <input type="number" id="horseTime" value="3" min="1" max="30">
+        <input type="number" id="horseTime" value="5" min="1" max="30">
       </div>
       <button class="btn btn-primary" onclick="createSession()">ドラフトルームを作成 →</button>
       <div id="createError" class="error-text"></div>
@@ -457,6 +459,7 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
 </div>
 
 <div id="toast"></div>
+<div class="footer-credit">Produced by Katsuma</div>
 
 <script>
 const SUPABASE_URL = 'https://ywmptfpkuvfondwhcmmr.supabase.co';
