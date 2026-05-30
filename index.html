@@ -296,7 +296,7 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
         <div class="avatar" id="myAvatar">？</div>
         <div>
           <div style="font-size:16px;font-weight:700" id="myTurnName">—</div>
-          <div style="font-size:12px;color:var(--muted)">あなたの番です！</div>
+          <div style="font-size:12px;color:var(--muted)" id="myTurnSub">第1巡を入力してください</div>
         </div>
       </div>
       <div class="field">
@@ -763,6 +763,8 @@ function renderInputPage() {
   if (!iDoneThisRound) {
     document.getElementById('myTurnName').textContent = state.myName;
     document.getElementById('myAvatar').textContent = state.myName.slice(0,1);
+    const sub = document.getElementById('myTurnSub');
+    if (sub) sub.textContent = '第' + round + '巡を入力してください';
   }
 
   // round status list
@@ -850,6 +852,7 @@ async function submitPick() {
   const mother = document.getElementById('motherInput').value.trim();
   const errEl = document.getElementById('pickError');
   if (!mother) { errEl.textContent = '母名を入力してください'; return; }
+  if (/[A-Za-z0-9]/.test(mother)) { errEl.textContent = '母名は全角で入力してください（半角不可）'; return; }
   if (!state.selectedGender) { errEl.textContent = '性別を選択してください'; return; }
   errEl.textContent = '';
   const round = state.session.current_round;
@@ -1562,6 +1565,7 @@ function setAltGenderInline(playerName, gender) {
 }
 
 async function submitAltInlineWithMother(playerName, conflictMother, mother, gender) {
+  if (/[A-Za-z0-9]/.test(mother)) { toast('母名は全角で入力してください'); return; }
   const round = state.session.current_round;
   await sb.from('draft_picks').delete()
     .eq('session_id', state.sessionId).eq('player_name', playerName)
