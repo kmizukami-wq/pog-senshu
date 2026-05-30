@@ -1431,13 +1431,18 @@ function renderConflictPage() {
   });
   el.querySelectorAll('.submit-alt-btn').forEach(btn => {
     btn.onclick = () => {
-      const safeKey = btn.dataset.player.replace(/[^a-zA-Z0-9]/g, '_');
-      const motherVal = document.getElementById('alt_mother_' + safeKey)?.value?.trim();
-      const errEl = el.querySelector('.alt-error-msg[data-player="' + btn.dataset.player + '"]');
+      const player = btn.dataset.player;
+      const conflictMother = btn.dataset.mother;
+      // input要素を直接取得（同じカード内から探す）
+      const card = btn.closest('div[style*="gold"]') || btn.parentElement;
+      const motherInput = card.querySelector('input[type="text"]');
+      const errEl = el.querySelector('.alt-error-msg[data-player="' + player + '"]');
+      const motherVal = motherInput?.value?.trim();
       if (!motherVal) { if(errEl) errEl.textContent = '母名を入力してください'; return; }
-      const gender = state.conflictGenders?.[btn.dataset.player];
+      const gender = state.conflictGenders?.[player];
       if (!gender) { if(errEl) errEl.textContent = '性別を選択してください'; return; }
-      submitAltInline(btn.dataset.player, btn.dataset.mother);
+      // state.conflictGenders に値があれば submitAltInline を呼ぶ
+      submitAltInlineWithMother(player, conflictMother, motherVal, gender);
     };
   });
   const finishBtn = el.querySelector('#finishConflictBtn');
@@ -1534,6 +1539,24 @@ function setAltGenderInline(playerName, gender) {
   document.querySelectorAll('.alt-female-btn[data-player="' + playerName + '"]').forEach(b => {
     b.className = 'gender-btn' + (gender === '牝' ? ' active-female' : '');
   });
+}
+
+async function submitAltInlineWithMother(playerName, conflictMother, mother, gender) {
+  const round = state.session.current_round;
+  await sb.from('draft_picks').delete()
+    .eq('session_id', state.sessionId).eq('player_name', playerName)
+    .eq('round', round).eq('is_alt', true);
+  const { error } = await sb.from('draft_picks').insert({
+    session_id: state.sessionId, player_name: playerName,
+    round, mother, gender, is_alt: true
+  });
+  if (error) { toast('エラー: ' + error.message); return; }
+  toast('外れ指名を登録しました');
+  const formWrap = document.querySelector('div[style*="gold"]');
+  if (formWrap) formWrap.innerHTML = '<div style="font-size:13px;color:var(--green);font-weight:600">✓ 外れ指名「' + mother + '」' + gender + ' を登録しました</div>';
+  const { data: freshPicks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
+  if (freshPicks) state.picks = freshPicks;
+  renderConflictPage();
 }
 
 async function submitAltInline(playerName, conflictMother) {
