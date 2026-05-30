@@ -254,7 +254,7 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
       <div style="font-size:48px;margin-bottom:12px">🏇</div>
       <div style="font-size:20px;font-weight:800;margin-bottom:6px">POG ドラフト</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:24px">身内でリアルタイムドラフト会議</div>
-      <button class="btn btn-primary" onclick="localStorage.removeItem('pog_session');showPage('createPage')" style="margin-bottom:10px">🆕 新しいドラフトを作成</button>
+      <button class="btn btn-primary" onclick="showCreatePageWithPW()" style="margin-bottom:10px">🆕 新しいドラフトを作成</button>
       <button class="btn btn-outline" onclick="localStorage.removeItem('pog_session');showPage('joinPage')">🔗 参加コードで参加</button>
       <div id="resumeBtn" style="display:none;margin-top:10px">
         <button class="btn btn-outline" onclick="resumeLastSession()" style="border-color:var(--gold);color:var(--gold)">
@@ -2028,12 +2028,23 @@ function skipOpening() {
 }
 
 // ── RESUME ───────────────────────────────────────────────────
-function confirmNewDraft() {
+function showCreatePageWithPW() {
   document.getElementById('pwInput').value = '';
   document.getElementById('pwError').textContent = '';
+  document.getElementById('pwModal').dataset.mode = 'create';
   document.getElementById('pwModal').style.display = 'flex';
   setTimeout(() => document.getElementById('pwInput').focus(), 100);
 }
+
+function confirmNewDraft() {
+  document.getElementById('pwInput').value = '';
+  document.getElementById('pwError').textContent = '';
+  document.getElementById('pwModal').dataset.mode = 'newdraft';
+  document.getElementById('pwModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('pwInput').focus(), 100);
+}
+
+
 
 async function pwModalSubmit() {
   const pw = document.getElementById('pwInput').value;
@@ -2042,10 +2053,16 @@ async function pwModalSubmit() {
     document.getElementById('pwInput').value = '';
     return;
   }
+  const mode = document.getElementById('pwModal').dataset.mode;
   document.getElementById('pwModal').style.display = 'none';
-  if (!confirm('現在のドラフト会議を終了して新しく作成しますか？\n参加者全員のセッションが閉じられます。')) return;
-  await sb.from('draft_sessions').update({ status: 'closed' }).eq('id', state.sessionId);
-  handleSessionClosed();
+  if (mode === 'create') {
+    localStorage.removeItem('pog_session');
+    showPage('createPage');
+  } else {
+    if (!confirm('現在のドラフト会議を終了して新しく作成しますか？\n参加者全員のセッションが閉じられます。')) return;
+    await sb.from('draft_sessions').update({ status: 'closed' }).eq('id', state.sessionId);
+    handleSessionClosed();
+  }
 }
 
 function handleSessionClosed() {
