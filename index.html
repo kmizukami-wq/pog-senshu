@@ -166,10 +166,12 @@ label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-wei
   padding:12px;margin-bottom:12px;font-size:13px;}
 
 /* STANDINGS TABLE */
-.standings-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
-table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
-.st th{background:var(--green-d);color:#f5d76e;padding:8px 6px;white-space:nowrap;font-size:11px;position:sticky;top:0;}
-.st td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top;}
+.standings-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -16px;padding:0 16px;}
+table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px + var(--player-count, 2) * 140px));}
+.st th{background:var(--green-d);color:#f5d76e;padding:8px 10px;white-space:nowrap;font-size:12px;position:sticky;top:0;min-width:130px;text-align:center;}
+.st th:first-child{min-width:72px;}
+.st td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap;text-align:center;}
+.st td:first-child{text-align:center;}
 .st tr:hover td{background:var(--bg);}
 
 /* NOTIFICATION TOAST */
@@ -464,7 +466,7 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
     <div style="font-size:20px;font-weight:800;margin-bottom:4px">ドラフト完了！</div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:20px">全指名が確定しました</div>
     <div class="btn-row" style="margin-bottom:16px">
-      <button class="btn btn-primary" onclick="showPage('standingsPage');renderStandings()">📋 最終一覧</button>
+      <button class="btn btn-primary" onclick="state._standingsOpen=true;showPage('standingsPage');renderStandings()">📋 最終一覧</button>
       <button class="btn btn-gold" onclick="exportCSV()">📊 CSV</button>
     </div>
     <div id="finalSummary"></div>
@@ -1036,7 +1038,8 @@ function startStatusWatcher() {
       if (state._conflictFormOpen || state._standingsOpen) return;
 
       // 現在のページとDBのステータスが食い違っていたら遷移
-      if (expectedPage && currentPage !== expectedPage) {
+      // ただしstandingsPageは全ステータスで許容する
+      if (expectedPage && currentPage !== expectedPage && currentPage !== 'standingsPage') {
         state.session = sess;
         await loadState();
         renderByStatus(sess.status);
