@@ -286,7 +286,7 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
       <span class="round-pill" id="roundLabel">第1巡</span>
     </div>
     <div style="text-align:right;margin-bottom:10px">
-      <button class="btn btn-outline btn-sm" onclick="showPage('standingsPage');renderStandings()" style="display:inline-block;width:auto">📋 状況</button>
+      <button class="btn btn-outline btn-sm" onclick="state._standingsOpen=true;showPage('standingsPage');renderStandings()" style="display:inline-block;width:auto">📋 状況</button>
     </div>
     <div id="inputDots" class="dots" style="margin-bottom:14px"></div>
 
@@ -377,7 +377,7 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
       <span style="font-size:14px;font-weight:600">指名状況</span>
       <div style="display:flex;gap:8px">
         <button class="btn btn-outline btn-sm" onclick="exportCSV()">CSV</button>
-        <button class="btn btn-outline btn-sm" onclick="goBack()">← 戻る</button>
+        <button class="btn btn-outline btn-sm" onclick="state._standingsOpen=false;goBack()">← 戻る</button>
       </div>
     </div>
     <div class="standings-wrap">
@@ -451,6 +451,7 @@ function showPage(id) {
 }
 
 function goBack() {
+  state._standingsOpen = false;
   showPage(state.prevPage || 'inputPage');
   if (state.prevPage === 'inputPage') renderInputPage();
 }
@@ -689,7 +690,7 @@ function startInputPoller() {
       }
     }
 
-    renderInputPage();
+    if (!state._standingsOpen) renderInputPage();
   }, 2000);
 }
 
@@ -894,6 +895,7 @@ function startStatusWatcher() {
       const hasAltForm = myKey && !!document.getElementById('alt_mother_' + myKey.replace(/[^a-zA-Z0-9]/g, '_'));
       const hasFixForm = !!document.querySelector('.fg-confirm');
       if (hasAltForm || hasFixForm) return;
+      if (state._standingsOpen) return;
 
       // 現在のページとDBのステータスが食い違っていたら遷移
       if (expectedPage && currentPage !== expectedPage) {
