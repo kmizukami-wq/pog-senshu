@@ -243,7 +243,7 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
     </button>
   </div>
   <h1>🏇 POG ドラフト会議</h1>
-  <div class="header-sub" id="draftNameDisplay">PICK OF THE GRASS</div>
+  <div class="header-sub" id="draftNameDisplay"></div>
   <div id="sessionBadge" style="display:none" class="session-badge"></div>
 </div>
 
@@ -255,7 +255,7 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
       <div style="font-size:20px;font-weight:800;margin-bottom:6px">POG ドラフト</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:24px">身内でリアルタイムドラフト会議</div>
       <button class="btn btn-primary" onclick="showCreatePageWithPW()" style="margin-bottom:10px">🆕 新しいドラフトを作成</button>
-      <button class="btn btn-outline" onclick="localStorage.removeItem('pog_session');showPage('joinPage')">🔗 参加コードで参加</button>
+      <button class="btn btn-outline" onclick="localStorage.removeItem('pog_session');showPage('joinPage')">🔗 コードで参加</button>
       <div id="resumeBtn" style="display:none;margin-top:10px">
         <button class="btn btn-outline" onclick="resumeLastSession()" style="border-color:var(--gold);color:var(--gold)">
           🔄 前回のセッションに戻る
@@ -561,6 +561,8 @@ function showPage(id) {
   });
   const el = document.getElementById(id);
   if (el) { el.classList.add('active'); }
+  const sub = document.getElementById('draftNameDisplay');
+  if (sub) sub.style.display = id === 'homePage' ? 'none' : 'block';
   if (id === 'homePage') checkResumeBtn();
 }
 
@@ -666,6 +668,12 @@ function updateDraftName() {
   const el = document.getElementById('draftNameDisplay');
   if (el) el.textContent = name || 'POG ドラフト';
 }
+
+// 初期表示でサブタイトルを非表示
+document.addEventListener('DOMContentLoaded', () => {
+  const sub = document.getElementById('draftNameDisplay');
+  if (sub) sub.style.display = 'none';
+});
 
 // ── LOBBY ────────────────────────────────────────────────────
 async function enterLobby() {
