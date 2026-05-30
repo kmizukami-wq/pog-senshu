@@ -1403,7 +1403,12 @@ async function submitAltInline(playerName, conflictMother) {
   });
   if (error) { if(errEl) errEl.textContent = 'エラー: ' + error.message; return; }
   toast('外れ指名を登録しました');
-  // picks を最新化して画面を再描画
+  // フォームを即座に「登録済み」表示に差し替え（ポーラーより先に更新）
+  const formWrap = motherEl?.closest('div[style*="gold"]');
+  if (formWrap) {
+    formWrap.innerHTML = `<div style="font-size:13px;color:var(--green);font-weight:600">✓ 外れ指名「${mother}」${gender} を登録しました</div>`;
+  }
+  // picks を最新化して全体再描画
   const { data: freshPicks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
   if (freshPicks) state.picks = freshPicks;
   renderConflictPage();
