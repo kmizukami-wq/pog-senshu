@@ -292,7 +292,7 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
       </div>
       <div class="field">
         <label>母馬名</label>
-        <input type="text" id="motherInput" placeholder="例：ウオッカ" oninput="onMotherInput()">
+        <input type="text" id="motherInput" placeholder="例：ウオッカ" oninput="applyZenkaku(this);onMotherInput()" inputmode="text">
         <div class="verify-status" id="verifyStatus"></div>
       </div>
       <div class="field">
@@ -1051,6 +1051,12 @@ function subscribeReveal() {
 
 // ── CONFLICTS ────────────────────────────────────────────────
 async function checkConflicts() {
+  // 必ず最新のpicksをDBから取得してから判定
+  const { data: freshPicks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
+  if (freshPicks) state.picks = freshPicks;
+  const { data: freshSess } = await sb.from('draft_sessions').select('*').eq('id', state.sessionId).single();
+  if (freshSess) state.session = freshSess;
+
   const round = state.session.current_round;
   const roundPicks = state.picks.filter(p => p.round === round && !p.is_alt);
   const byMother = {};
@@ -1062,6 +1068,8 @@ async function checkConflicts() {
   const conflicts = Object.values(byMother).filter(g => g.length > 1);
   if (conflicts.length > 0) {
     await sb.from('draft_sessions').update({ status: 'conflict' }).eq('id', state.sessionId);
+    state.session.status = 'conflict';
+    renderByStatus('conflict');
   } else {
     await advanceRound();
   }
@@ -1165,7 +1173,7 @@ function renderConflictPage() {
         <div style="font-size:14px;font-weight:600;margin-bottom:4px">「${g[0].mother}」は${state.conflictWinners[g[0].mother.toLowerCase()]}が獲得しました</div>
         <div style="font-size:12px;color:var(--muted);margin-bottom:14px">代わりの指名馬の母名を入力してください</div>
         <div class="field"><label>外れ指名の母名</label>
-          <input type="text" id="altMotherInput" placeholder="別の母馬名">
+          <input type="text" id="altMotherInput" placeholder="別の母馬名" oninput="applyZenkaku(this)" inputmode="text">
         </div>
         <div class="field"><label>性別</label>
           <div class="gender-toggle">
@@ -1302,6 +1310,43 @@ function exportCSV() {
   a.href = URL.createObjectURL(blob);
   a.download = 'POGドラフト結果.csv';
   a.click();
+}
+
+// ── 全角変換 ───────────────────────────────────────────────────
+function toZenkaku(str) {
+  return str
+    // 半角英数字・記号 → 全角
+    .replace(/[A-Za-z0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0))
+    // 半角スペース → 全角スペース
+    .replace(/ /g, '　')
+    // 半角カタカナ → 全角カタカナ
+    .replace(/[｡-ﾟ]/g, c => {
+      const map = {
+        '｡':'。','｢':'「','｣':'」','､':'、','･':'・',
+        'ｦ':'ヲ','ｧ':'ァ','ｨ':'ィ','ｩ':'ゥ','ｪ':'ェ',
+        'ｫ':'ォ','ｬ':'ャ','ｭ':'ュ','ｮ':'ョ','ｯ':'ッ',
+        'ｰ':'ー','ｱ':'ア','ｲ':'イ','ｳ':'ウ','ｴ':'エ',
+        'ｵ':'オ','ｶ':'カ','ｷ':'キ','ｸ':'ク','ｹ':'ケ',
+        'ｺ':'コ','ｻ':'サ','ｼ':'シ','ｽ':'ス','ｾ':'セ',
+        'ｿ':'ソ','ﾀ':'タ','ﾁ':'チ','ﾂ':'ツ','ﾃ':'テ',
+        'ﾄ':'ト','ﾅ':'ナ','ﾆ':'ニ','ﾇ':'ヌ','ﾈ':'ネ',
+        'ﾉ':'ノ','ﾊ':'ハ','ﾋ':'ヒ','ﾌ':'フ','ﾍ':'ヘ',
+        'ﾎ':'ホ','ﾏ':'マ','ﾐ':'ミ','ﾑ':'ム','ﾒ':'メ',
+        'ﾓ':'モ','ﾔ':'ヤ','ﾕ':'ユ','ﾖ':'ヨ','ﾗ':'ラ',
+        'ﾘ':'リ','ﾙ':'ル','ﾚ':'レ','ﾛ':'ロ','ﾜ':'ワ',
+        'ﾝ':'ン','ﾞ':'゛','ﾟ':'゜'
+      };
+      return map[c] || c;
+    });
+}
+
+function applyZenkaku(el) {
+  const pos = el.selectionStart;
+  const converted = toZenkaku(el.value);
+  if (converted !== el.value) {
+    el.value = converted;
+    el.setSelectionRange(pos, pos);
+  }
 }
 
 // ── RESUME ───────────────────────────────────────────────────
