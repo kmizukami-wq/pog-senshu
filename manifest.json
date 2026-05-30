@@ -2,19 +2,20 @@
   "name": "POG ドラフト会議",
   "short_name": "POGドラフト",
   "description": "身内でリアルタイムPOGドラフト会議",
-  "start_url": "/",
+  "start_url": "/pog-senshu/",
+  "scope": "/pog-senshu/",
   "display": "standalone",
   "background_color": "#0d2e1a",
   "theme_color": "#0d5c33",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "/pog-senshu/icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "icon-512.png",
+      "src": "/pog-senshu/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
