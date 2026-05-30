@@ -175,6 +175,12 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
       <div style="font-size:13px;color:var(--muted);margin-bottom:24px">身内でリアルタイムドラフト会議</div>
       <button class="btn btn-primary" onclick="showPage('createPage')" style="margin-bottom:10px">🆕 新しいドラフトを作成</button>
       <button class="btn btn-outline" onclick="showPage('joinPage')">🔗 参加コードで参加</button>
+      <div id="resumeBtn" style="display:none;margin-top:10px">
+        <button class="btn btn-outline" onclick="resumeLastSession()" style="border-color:var(--gold);color:var(--gold)">
+          🔄 前回のセッションに戻る
+        </button>
+        <div id="resumeInfo" style="font-size:11px;color:var(--muted);margin-top:4px;text-align:center"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -202,21 +208,12 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
         </select>
       </div>
       <div class="field">
-        <label>公開モード</label>
-        <select id="revealMode">
-          <option value="sequential">順番に1人ずつ公開</option>
-          <option value="all">全員一括表示</option>
-        </select>
+        <label>名前表示時間（秒）</label>
+        <input type="number" id="nameTime" value="3" min="1" max="30">
       </div>
-      <div id="revealTimeFields">
-        <div class="field">
-          <label>名前表示時間（秒）</label>
-          <input type="number" id="nameTime" value="3" min="1" max="30">
-        </div>
-        <div class="field">
-          <label>馬名・性別表示時間（秒）</label>
-          <input type="number" id="horseTime" value="3" min="1" max="30">
-        </div>
+      <div class="field">
+        <label>馬名・性別表示時間（秒）</label>
+        <input type="number" id="horseTime" value="3" min="1" max="30">
       </div>
       <button class="btn btn-primary" onclick="createSession()">ドラフトルームを作成 →</button>
       <div id="createError" class="error-text"></div>
@@ -326,7 +323,14 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
     <div class="card" style="padding:28px">
       <div style="font-size:36px;margin-bottom:8px">🎯</div>
       <div style="font-size:18px;font-weight:700;margin-bottom:6px">全員の入力完了！</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:20px" id="revealModeLabel">順番に指名馬を公開します</div>
+      <div id="revealModeSelect" style="display:none;margin-bottom:20px">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:10px">この巡の公開方法を選んでください</div>
+        <div class="btn-row">
+          <button class="btn btn-outline" id="modeSeqBtn" onclick="selectRevealMode('sequential')" style="font-size:13px">🎴 順番に公開</button>
+          <button class="btn btn-outline" id="modeAllBtn" onclick="selectRevealMode('all')" style="font-size:13px">📋 一括表示</button>
+        </div>
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:20px" id="revealModeLabel"></div>
       <div id="revealQueue" style="margin-bottom:20px;text-align:left"></div>
       <div id="allAtOnceTable" style="display:none;margin-bottom:20px;text-align:left"></div>
       <div id="revealHostBtn" style="display:none">
@@ -420,6 +424,7 @@ function showPage(id) {
   });
   const el = document.getElementById(id);
   if (el) { el.classList.add('active'); }
+  if (id === 'homePage') checkResumeBtn();
 }
 
 function goBack() {
@@ -447,7 +452,6 @@ async function createSession() {
   const totalPicks = parseInt(document.getElementById('pickCount').value);
   const revealTime = parseInt(document.getElementById('revealTime').value) || 5;
 
-  const revealMode = document.getElementById('revealMode').value;
   const nameTime = parseInt(document.getElementById('nameTime').value) || 3;
   const horseTime = parseInt(document.getElementById('horseTime').value) || 3;
   const { error: se } = await sb.from('draft_sessions').insert({
@@ -456,7 +460,7 @@ async function createSession() {
     status: 'lobby',
     total_picks: totalPicks,
     reveal_time: nameTime + horseTime,
-    reveal_mode: revealMode,
+    reveal_mode: 'sequential',
     name_time: nameTime,
     horse_time: horseTime,
     current_round: 1,
@@ -472,6 +476,7 @@ async function createSession() {
   state.myName = name;
   state.isHost = true;
   localStorage.setItem('pog_host_' + code, '1');
+  localStorage.setItem('pog_session', JSON.stringify({ sessionId: code, name, isHost: true }));
   history.replaceState({}, '', '?session=' + code + '&name=' + encodeURIComponent(name));
   document.getElementById('sessionBadge').textContent = 'ルーム: ' + code;
   document.getElementById('sessionBadge').style.display = 'inline-block';
@@ -502,6 +507,7 @@ async function joinSession() {
   state.sessionId = code;
   state.myName = name;
   state.isHost = false;
+  localStorage.setItem('pog_session', JSON.stringify({ sessionId: code, name, isHost: false }));
   history.replaceState({}, '', '?session=' + code + '&name=' + encodeURIComponent(name));
   document.getElementById('sessionBadge').textContent = 'ルーム: ' + code;
   document.getElementById('sessionBadge').style.display = 'inline-block';
@@ -812,7 +818,10 @@ function startRevealPoller() {
       clearInterval(state._revealPoller);
       state._revealStarted = true;
       await loadState();
+      document.getElementById('revealModeSelect').style.display = 'none';
+      document.getElementById('revealGuestMsg').style.display = 'none';
       const mode = state.session?.reveal_mode || 'sequential';
+      document.getElementById('revealModeLabel').textContent = mode === 'sequential' ? '順番に1人ずつ公開します' : '全員の指名馬を一括表示します';
       if (mode === 'all') { showAllAtOnce(); }
       else { doReveal(0); }
     }
@@ -821,14 +830,34 @@ function startRevealPoller() {
 
 function renderRevealPage() {
   showPage('revealPage');
-  const mode = state.session?.reveal_mode || 'sequential';
-  const isSeq = mode === 'sequential';
-  document.getElementById('revealModeLabel').textContent = isSeq ? '順番に指名馬を公開します' : '全員の指名馬を一括表示します';
-  document.getElementById('revealQueue').style.display = isSeq ? 'block' : 'none';
+  state._currentRevealMode = null; // リセット
   document.getElementById('allAtOnceTable').style.display = 'none';
-  if (isSeq) {
-    const queue = document.getElementById('revealQueue');
-    queue.innerHTML = state.players.map((p, i) => `
+  document.getElementById('revealQueue').style.display = 'none';
+  document.getElementById('revealHostBtn').style.display = 'none';
+  document.getElementById('revealGuestMsg').style.display = 'none';
+  document.getElementById('revealModeLabel').textContent = '';
+
+  if (state.isHost) {
+    // ホスト：モード選択UIを表示
+    document.getElementById('revealModeSelect').style.display = 'block';
+    document.getElementById('modeSeqBtn').className = 'btn btn-outline';
+    document.getElementById('modeAllBtn').className = 'btn btn-outline';
+  } else {
+    // ゲスト：待機メッセージ
+    document.getElementById('revealModeSelect').style.display = 'none';
+    document.getElementById('revealGuestMsg').style.display = 'block';
+  }
+}
+
+function selectRevealMode(mode) {
+  state._currentRevealMode = mode;
+  document.getElementById('modeSeqBtn').className = 'btn ' + (mode === 'sequential' ? 'btn-primary' : 'btn-outline');
+  document.getElementById('modeAllBtn').className = 'btn ' + (mode === 'all' ? 'btn-primary' : 'btn-outline');
+  // 選択に応じて説明とスタートボタンを表示
+  document.getElementById('revealModeLabel').textContent = mode === 'sequential' ? '順番に1人ずつ公開します' : '全員の指名馬を一括表示します';
+  if (mode === 'sequential') {
+    document.getElementById('revealQueue').style.display = 'block';
+    document.getElementById('revealQueue').innerHTML = state.players.map((p, i) => `
       <div class="status-row">
         <div style="display:flex;align-items:center;gap:8px">
           <div class="avatar" style="width:28px;height:28px;font-size:11px">${i+1}</div>
@@ -836,16 +865,20 @@ function renderRevealPage() {
         </div>
         <span style="font-size:12px;color:var(--muted)">待機中</span>
       </div>`).join('');
+  } else {
+    document.getElementById('revealQueue').style.display = 'none';
   }
-  document.getElementById('revealHostBtn').style.display = state.isHost ? 'block' : 'none';
-  document.getElementById('revealGuestMsg').style.display = state.isHost ? 'none' : 'block';
+  document.getElementById('revealHostBtn').style.display = 'block';
 }
 
 async function startReveal() {
   if (!state.isHost) return;
-  await sb.from('draft_sessions').update({ reveal_idx: 0, status: 'revealing_active' }).eq('id', state.sessionId);
+  const mode = state._currentRevealMode || 'sequential';
+  // DBにモードを保存してゲストに通知
+  await sb.from('draft_sessions').update({ reveal_idx: 0, status: 'revealing_active', reveal_mode: mode }).eq('id', state.sessionId);
   await loadState();
-  const mode = state.session?.reveal_mode || 'sequential';
+  document.getElementById('revealModeSelect').style.display = 'none';
+  document.getElementById('revealHostBtn').style.display = 'none';
   if (mode === 'all') { showAllAtOnce(); }
   else { doReveal(0); }
 }
@@ -1120,40 +1153,78 @@ function exportCSV() {
   a.click();
 }
 
-// ── REVEAL MODE TOGGLE ───────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  const modeEl = document.getElementById('revealMode');
-  if (modeEl) {
-    modeEl.addEventListener('change', () => {
-      document.getElementById('revealTimeFields').style.display =
-        modeEl.value === 'sequential' ? 'block' : 'none';
-    });
+// ── RESUME ───────────────────────────────────────────────────
+function resumeLastSession() {
+  const saved = localStorage.getItem('pog_session');
+  if (!saved) return;
+  try {
+    const { sessionId, name, isHost } = JSON.parse(saved);
+    restoreSession(sessionId, name, isHost);
+  } catch(e) {}
+}
+
+// ホームページ表示時に前回セッションがあればボタンを出す
+function checkResumeBtn() {
+  const saved = localStorage.getItem('pog_session');
+  if (saved) {
+    try {
+      const { sessionId, name } = JSON.parse(saved);
+      document.getElementById('resumeBtn').style.display = 'block';
+      document.getElementById('resumeInfo').textContent = `ルーム: ${sessionId}（${name}）`;
+    } catch(e) {}
   }
-});
+}
 
 // ── INIT ─────────────────────────────────────────────────────
-// Check URL params for session restore
-const params = new URLSearchParams(location.search);
-if (params.get('session') && params.get('name')) {
-  state.sessionId = params.get('session');
-  state.myName = decodeURIComponent(params.get('name'));
-  state.isHost = localStorage.getItem('pog_host_' + state.sessionId) === '1';
-  (async () => {
-    await loadState();
-    if (state.session) {
-      document.getElementById('sessionBadge').textContent = 'ルーム: ' + state.sessionId;
-      document.getElementById('sessionBadge').style.display = 'inline-block';
-      subscribeReveal();
-      // If lobby, enterLobby handles subscribeAll + player list render
-      if (state.session.status === 'lobby') {
-        await enterLobby();
-      } else {
-        subscribeAll();
-        renderByStatus(state.session.status);
-      }
-    }
-  })();
+async function restoreSession(sessionId, name, isHost) {
+  state.sessionId = sessionId;
+  state.myName = name;
+  state.isHost = isHost;
+  await loadState();
+  if (!state.session) {
+    // セッションが存在しない（期限切れ等）→ ホームへ
+    localStorage.removeItem('pog_session');
+    showPage('homePage');
+    toast('セッションが見つかりません');
+    return;
+  }
+  document.getElementById('sessionBadge').textContent = 'ルーム: ' + sessionId;
+  document.getElementById('sessionBadge').style.display = 'inline-block';
+  // URLも最新に保つ
+  history.replaceState({}, '', '?session=' + sessionId + '&name=' + encodeURIComponent(name));
+  subscribeReveal();
+  if (state.session.status === 'lobby') {
+    await enterLobby();
+  } else {
+    subscribeAll();
+    renderByStatus(state.session.status);
+  }
 }
+
+(async () => {
+  // 1. URLパラメータ優先
+  const params = new URLSearchParams(location.search);
+  if (params.get('session') && params.get('name')) {
+    const sessionId = params.get('session');
+    const name = decodeURIComponent(params.get('name'));
+    const isHost = localStorage.getItem('pog_host_' + sessionId) === '1';
+    await restoreSession(sessionId, name, isHost);
+    return;
+  }
+  // 2. URLになければlocalStorageから復元
+  const saved = localStorage.getItem('pog_session');
+  if (saved) {
+    try {
+      const { sessionId, name, isHost } = JSON.parse(saved);
+      if (sessionId && name) {
+        await restoreSession(sessionId, name, isHost);
+        return;
+      }
+    } catch(e) {}
+  }
+  // 3. 何もなければホーム画面
+  showPage('homePage');
+})();
 </script>
 </body>
 </html>
