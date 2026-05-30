@@ -74,8 +74,9 @@ label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-wei
 .tag-female{background:#fce7f3;color:#9d174d;}
 
 /* ROUND BADGE */
-.round-pill{display:inline-block;background:var(--gold-l);color:#7a5a0a;
-  padding:4px 14px;border-radius:99px;font-size:12px;font-weight:700;border:1px solid #e8c84a;}
+.round-pill{display:block;background:var(--gold-l);color:#7a5a0a;
+  padding:8px 20px;border-radius:99px;font-size:20px;font-weight:800;border:1px solid #e8c84a;
+  text-align:center;letter-spacing:2px;}
 
 /* PLAYER AVATAR */
 .avatar{width:36px;height:36px;border-radius:50%;background:var(--green);color:white;
@@ -281,9 +282,11 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
 
 <div id="inputPage" class="page">
   <div style="padding-top:16px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div style="text-align:center;margin-bottom:6px">
       <span class="round-pill" id="roundLabel">第1巡</span>
-      <button class="btn btn-outline btn-sm" onclick="showPage('standingsPage');renderStandings()">📋 状況</button>
+    </div>
+    <div style="text-align:right;margin-bottom:10px">
+      <button class="btn btn-outline btn-sm" onclick="showPage('standingsPage');renderStandings()" style="display:inline-block;width:auto">📋 状況</button>
     </div>
     <div id="inputDots" class="dots" style="margin-bottom:14px"></div>
 
@@ -298,7 +301,7 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
       </div>
       <div class="field">
         <label>母馬名</label>
-        <input type="text" id="motherInput" placeholder="例：ウオッカ" oninput="applyZenkaku(this);onMotherInput()" inputmode="text">
+        <input type="text" id="motherInput" placeholder="例：ウオッカ" oninput="applyZenkaku(this);onMotherInput()" inputmode="text" oncompositionstart="this._isComposing=true" oncompositionend="this._isComposing=false;applyZenkaku(this);onMotherInput()">
         <div class="verify-status" id="verifyStatus"></div>
       </div>
       <div class="field">
@@ -1037,7 +1040,7 @@ function showAllAtOnce() {
   const round = state.session.current_round;
   const el = document.getElementById('allAtOnceTable');
   el.style.display = 'block';
-  el.innerHTML = `<div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:12px">第${round}巡 指名馬一覧</div>` +
+  el.innerHTML = `<div style="font-size:20px;font-weight:800;text-align:center;margin-bottom:16px;color:#7a5a0a">第${round}巡 指名馬一覧</div>` +
     state.players.map(p => {
       const pick = state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt);
       const tag = pick ? (pick.gender === '牡' ? '<span class="tag tag-male">牡</span>' : '<span class="tag tag-female">牝</span>') : '';
@@ -1071,7 +1074,7 @@ function doReveal(idx) {
       document.getElementById('allAtOnceTable').style.display = 'block';
       const round = state.session.current_round;
       document.getElementById('allAtOnceTable').innerHTML =
-        `<div style="font-size:15px;font-weight:700;margin-bottom:16px">第${round}巡 公開完了！</div>` +
+        `<div style="font-size:22px;font-weight:800;text-align:center;margin-bottom:16px;color:#7a5a0a">第${round}巡 公開完了！</div>` +
         state.players.map(p => {
           const pick = state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt);
           const tag = pick ? (pick.gender === '牡' ? '<span class="tag tag-male">牡</span>' : '<span class="tag tag-female">牝</span>') : '';
@@ -1365,7 +1368,7 @@ function renderConflictPage() {
           const safeKey = key.replace(/[^a-zA-Z0-9]/g, '_');
           inner += '<div style="padding:12px;background:var(--gold-l);border-radius:8px;margin-bottom:6px;border:1px solid #e8c84a">';
           inner += '<div style="font-size:13px;font-weight:600;margin-bottom:8px">あなたの外れ指名を入力してください</div>';
-          inner += '<div class="field" style="margin-bottom:8px"><input type="text" id="alt_mother_' + safeKey + '" placeholder="別の母馬名" oninput="applyZenkaku(this)" inputmode="text" style="background:white"></div>';
+          inner += '<div class="field" style="margin-bottom:8px"><input type="text" id="alt_mother_' + safeKey + '" placeholder="別の母馬名" oninput="applyZenkaku(this)" inputmode="text" oncompositionstart="this._isComposing=true" oncompositionend="this._isComposing=false;applyZenkaku(this)" style="background:white"></div>';
           inner += '<div class="gender-toggle" style="margin-bottom:8px">';
           inner += '<button class="gender-btn alt-male-btn" data-player="' + p.player_name + '">♂ 牡</button>';
           inner += '<button class="gender-btn alt-female-btn" data-player="' + p.player_name + '">♀ 牝</button>';
@@ -1732,12 +1735,22 @@ function toZenkaku(str) {
 }
 
 function applyZenkaku(el) {
+  // IME入力中（日本語変換中）はスキップ
+  if (el._isComposing) return;
   const pos = el.selectionStart;
   const converted = toZenkaku(el.value);
   if (converted !== el.value) {
     el.value = converted;
     el.setSelectionRange(pos, pos);
   }
+}
+
+function setupZenkakuInput(el) {
+  el.addEventListener('compositionstart', () => { el._isComposing = true; });
+  el.addEventListener('compositionend', () => {
+    el._isComposing = false;
+    applyZenkaku(el);
+  });
 }
 
 // ── RESUME ───────────────────────────────────────────────────
