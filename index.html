@@ -161,6 +161,12 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
 <body>
 
 <div class="header">
+  <div id="newDraftBtn" style="display:none;position:absolute;top:12px;right:12px">
+    <button onclick="confirmNewDraft()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);
+      color:white;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer;white-space:nowrap">
+      ＋ 新規作成
+    </button>
+  </div>
   <h1>🏇 POG ドラフト会議</h1>
   <div class="header-sub">PICK OF THE GRASS</div>
   <div id="sessionBadge" style="display:none" class="session-badge"></div>
@@ -529,6 +535,7 @@ async function enterLobby() {
   document.getElementById('lobbyCode').textContent = state.sessionId;
   document.getElementById('lobbyHostActions').style.display = state.isHost ? 'block' : 'none';
   document.getElementById('lobbyGuestMsg').style.display = state.isHost ? 'none' : 'block';
+  if (state.isHost) document.getElementById('newDraftBtn').style.display = 'block';
   subscribeAll();
   await loadLobby();
   // Poll every 3s as fallback for realtime
@@ -543,6 +550,7 @@ async function enterLobby() {
     const { data: sess } = await sb.from('draft_sessions').select('status').eq('id', state.sessionId).single();
     if (sess && sess.status !== 'lobby') {
       clearInterval(state._lobbyPoller);
+      if (sess.status === 'closed') { handleSessionClosed(); return; }
       await loadState();
       renderByStatus(sess.status);
     }
@@ -609,6 +617,10 @@ function subscribeAll() {
 }
 
 async function handleSessionChange(newSession) {
+  if (newSession.status === 'closed') {
+    handleSessionClosed();
+    return;
+  }
   state.session = newSession;
   await loadState();
   renderByStatus(newSession.status);
@@ -698,7 +710,9 @@ async function loadPicksAndRender() {
 }
 
 function renderByStatus(status) {
-  if (status === 'lobby') { enterLobby(); return; } // enterLobby is async but fire-and-forget here is OK since it awaits loadLobby internally
+  if (state.isHost) document.getElementById('newDraftBtn').style.display =
+    (status === 'homePage' || status === 'done') ? 'none' : 'block';
+  if (status === 'lobby') { enterLobby(); return; }
   if (status === 'inputting') { showPage('inputPage'); renderInputPage(); startInputPoller(); return; }
   if (status === 'revealing') {
     showPage('revealPage');
@@ -709,6 +723,7 @@ function renderByStatus(status) {
   }
   if (status === 'conflict') { showPage('conflictPage'); renderConflictPage(); startConflictPoller(); return; }
   if (status === 'done') { showPage('finalPage'); renderFinal(); return; }
+  if (status === 'closed') { handleSessionClosed(); return; }
 }
 
 // ── INPUT PAGE ───────────────────────────────────────────────
@@ -830,6 +845,7 @@ function startConflictPoller() {
     const { data: sess } = await sb.from('draft_sessions').select('status').eq('id', state.sessionId).single();
     if (sess && sess.status !== 'conflict') {
       clearInterval(state._conflictPoller);
+      if (sess.status === 'closed') { handleSessionClosed(); return; }
       await loadState();
       renderByStatus(sess.status);
       return;
@@ -1289,6 +1305,36 @@ function exportCSV() {
 }
 
 // ── RESUME ───────────────────────────────────────────────────
+async function confirmNewDraft() {
+  if (!confirm('現在のドラフト会議を終了して新しく作成しますか？\n参加者全員のセッションが閉じられます。')) return;
+  // DBのステータスをclosedに
+  await sb.from('draft_sessions').update({ status: 'closed' }).eq('id', state.sessionId);
+  handleSessionClosed();
+}
+
+function handleSessionClosed() {
+  // ポーラー全停止
+  clearInterval(state._inputPoller);
+  clearInterval(state._lobbyPoller);
+  clearInterval(state._revealPoller);
+  clearInterval(state._conflictPoller);
+  // localStorage・URL・state をリセット
+  localStorage.removeItem('pog_session');
+  localStorage.removeItem('pog_host_' + state.sessionId);
+  history.replaceState({}, '', location.pathname);
+  state.sessionId = null;
+  state.myName = null;
+  state.isHost = false;
+  state.session = null;
+  state.players = [];
+  state.picks = [];
+  // ヘッダーをリセット
+  document.getElementById('sessionBadge').style.display = 'none';
+  document.getElementById('newDraftBtn').style.display = 'none';
+  showPage('homePage');
+  toast('セッションを終了しました');
+}
+
 function clearSession() {
   localStorage.removeItem('pog_session');
   document.getElementById('resumeBtn').style.display = 'none';
