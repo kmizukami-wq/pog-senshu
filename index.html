@@ -173,8 +173,8 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
       <div style="font-size:48px;margin-bottom:12px">🏇</div>
       <div style="font-size:20px;font-weight:800;margin-bottom:6px">POG ドラフト</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:24px">身内でリアルタイムドラフト会議</div>
-      <button class="btn btn-primary" onclick="showPage('createPage')" style="margin-bottom:10px">🆕 新しいドラフトを作成</button>
-      <button class="btn btn-outline" onclick="showPage('joinPage')">🔗 参加コードで参加</button>
+      <button class="btn btn-primary" onclick="localStorage.removeItem('pog_session');showPage('createPage')" style="margin-bottom:10px">🆕 新しいドラフトを作成</button>
+      <button class="btn btn-outline" onclick="localStorage.removeItem('pog_session');showPage('joinPage')">🔗 参加コードで参加</button>
       <div id="resumeBtn" style="display:none;margin-top:10px">
         <button class="btn btn-outline" onclick="resumeLastSession()" style="border-color:var(--gold);color:var(--gold)">
           🔄 前回のセッションに戻る
