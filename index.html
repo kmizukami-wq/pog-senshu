@@ -202,8 +202,21 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
         </select>
       </div>
       <div class="field">
-        <label>公開時間（秒）</label>
-        <input type="number" id="revealTime" value="5" min="3" max="30">
+        <label>公開モード</label>
+        <select id="revealMode">
+          <option value="sequential">順番に1人ずつ公開</option>
+          <option value="all">全員一括表示</option>
+        </select>
+      </div>
+      <div id="revealTimeFields">
+        <div class="field">
+          <label>名前表示時間（秒）</label>
+          <input type="number" id="nameTime" value="3" min="1" max="30">
+        </div>
+        <div class="field">
+          <label>馬名・性別表示時間（秒）</label>
+          <input type="number" id="horseTime" value="3" min="1" max="30">
+        </div>
       </div>
       <button class="btn btn-primary" onclick="createSession()">ドラフトルームを作成 →</button>
       <div id="createError" class="error-text"></div>
@@ -313,8 +326,9 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
     <div class="card" style="padding:28px">
       <div style="font-size:36px;margin-bottom:8px">🎯</div>
       <div style="font-size:18px;font-weight:700;margin-bottom:6px">全員の入力完了！</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:20px">順番に指名馬を公開します</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:20px" id="revealModeLabel">順番に指名馬を公開します</div>
       <div id="revealQueue" style="margin-bottom:20px;text-align:left"></div>
+      <div id="allAtOnceTable" style="display:none;margin-bottom:20px;text-align:left"></div>
       <div id="revealHostBtn" style="display:none">
         <button class="btn btn-gold" onclick="startReveal()">🎯 公開スタート！</button>
       </div>
@@ -433,12 +447,18 @@ async function createSession() {
   const totalPicks = parseInt(document.getElementById('pickCount').value);
   const revealTime = parseInt(document.getElementById('revealTime').value) || 5;
 
+  const revealMode = document.getElementById('revealMode').value;
+  const nameTime = parseInt(document.getElementById('nameTime').value) || 3;
+  const horseTime = parseInt(document.getElementById('horseTime').value) || 3;
   const { error: se } = await sb.from('draft_sessions').insert({
     id: code,
     host_name: name,
     status: 'lobby',
     total_picks: totalPicks,
-    reveal_time: revealTime,
+    reveal_time: nameTime + horseTime,
+    reveal_mode: revealMode,
+    name_time: nameTime,
+    horse_time: horseTime,
     current_round: 1,
     current_player_idx: 0,
     reveal_idx: 0,
@@ -792,22 +812,31 @@ function startRevealPoller() {
       clearInterval(state._revealPoller);
       state._revealStarted = true;
       await loadState();
-      doReveal(0);
+      const mode = state.session?.reveal_mode || 'sequential';
+      if (mode === 'all') { showAllAtOnce(); }
+      else { doReveal(0); }
     }
   }, 1000);
 }
 
 function renderRevealPage() {
   showPage('revealPage');
-  const queue = document.getElementById('revealQueue');
-  queue.innerHTML = state.players.map((p, i) => `
-    <div class="status-row">
-      <div style="display:flex;align-items:center;gap:8px">
-        <div class="avatar" style="width:28px;height:28px;font-size:11px">${i+1}</div>
-        <span style="font-size:14px">${p.name}</span>
-      </div>
-      <span style="font-size:12px;color:var(--muted)">待機中</span>
-    </div>`).join('');
+  const mode = state.session?.reveal_mode || 'sequential';
+  const isSeq = mode === 'sequential';
+  document.getElementById('revealModeLabel').textContent = isSeq ? '順番に指名馬を公開します' : '全員の指名馬を一括表示します';
+  document.getElementById('revealQueue').style.display = isSeq ? 'block' : 'none';
+  document.getElementById('allAtOnceTable').style.display = 'none';
+  if (isSeq) {
+    const queue = document.getElementById('revealQueue');
+    queue.innerHTML = state.players.map((p, i) => `
+      <div class="status-row">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="avatar" style="width:28px;height:28px;font-size:11px">${i+1}</div>
+          <span style="font-size:14px">${p.name}</span>
+        </div>
+        <span style="font-size:12px;color:var(--muted)">待機中</span>
+      </div>`).join('');
+  }
   document.getElementById('revealHostBtn').style.display = state.isHost ? 'block' : 'none';
   document.getElementById('revealGuestMsg').style.display = state.isHost ? 'none' : 'block';
 }
@@ -816,7 +845,34 @@ async function startReveal() {
   if (!state.isHost) return;
   await sb.from('draft_sessions').update({ reveal_idx: 0, status: 'revealing_active' }).eq('id', state.sessionId);
   await loadState();
-  doReveal(0);
+  const mode = state.session?.reveal_mode || 'sequential';
+  if (mode === 'all') { showAllAtOnce(); }
+  else { doReveal(0); }
+}
+
+function showAllAtOnce() {
+  document.getElementById('revealQueue').style.display = 'none';
+  document.getElementById('revealHostBtn').style.display = 'none';
+  document.getElementById('revealGuestMsg').style.display = 'none';
+  const round = state.session.current_round;
+  const el = document.getElementById('allAtOnceTable');
+  el.style.display = 'block';
+  el.innerHTML = `<div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:12px">第${round}巡 指名馬一覧</div>` +
+    state.players.map(p => {
+      const pick = state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt);
+      const tag = pick ? (pick.gender === '牡' ? '<span class="tag tag-male">牡</span>' : '<span class="tag tag-female">牝</span>') : '';
+      return `<div class="status-row">
+        <span style="font-size:14px;font-weight:500">${p.name}</span>
+        <span style="font-size:14px">${pick ? pick.mother + ' ' : '—'} ${tag}</span>
+      </div>`;
+    }).join('') +
+    (state.isHost ? `<button class="btn btn-primary" style="margin-top:16px" onclick="finishReveal()">次の巡へ →</button>` : 
+     `<div style="font-size:13px;color:var(--muted);margin-top:16px;text-align:center">ホストが次の巡へ進めます</div>`);
+}
+
+async function finishReveal() {
+  if (!state.isHost) return;
+  await checkConflicts();
 }
 
 function doReveal(idx) {
@@ -829,29 +885,49 @@ function doReveal(idx) {
   const pick = state.picks.find(p => p.player_name === player.name && p.round === state.session.current_round && !p.is_alt);
   if (!pick) { doReveal(idx + 1); return; }
 
+  const nameTime = state.session.name_time || 3;
+  const horseTime = state.session.horse_time || 3;
+
+  // Step 1: 名前だけ表示
   document.getElementById('revealRoundLabel').textContent = `第${state.session.current_round}巡`;
   document.getElementById('revealOwnerName').textContent = player.name;
-  document.getElementById('revealMother').textContent = pick.mother;
-  document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '♂ 牡馬' : '♀ 牝馬';
-  document.getElementById('revealGenderText').style.color = pick.gender === '牡' ? '#60a5fa' : '#f472b6';
+  document.getElementById('revealMother').textContent = '？？？';
+  document.getElementById('revealGenderText').textContent = '？';
+  document.getElementById('revealGenderText').style.color = 'rgba(255,255,255,0.3)';
   document.getElementById('revealOverlay').style.display = 'flex';
 
-  const rt = state.session.reveal_time || 5;
-  let secs = rt;
-  document.getElementById('revealTimerText').textContent = `${secs}秒後に次へ`;
-  document.getElementById('timerFill').style.width = '100%';
-  document.getElementById('timerFill').style.transition = 'none';
-  setTimeout(() => {
-    document.getElementById('timerFill').style.transition = `width ${rt}s linear`;
-    document.getElementById('timerFill').style.width = '0%';
-  }, 50);
-
+  setTimerBar(nameTime);
+  let secs = nameTime;
+  document.getElementById('revealTimerText').textContent = `${secs}秒後に馬名公開`;
   clearInterval(state.revealTimer);
   state.revealTimer = setInterval(() => {
     secs--;
-    document.getElementById('revealTimerText').textContent = secs > 0 ? `${secs}秒後に次へ` : '次へ...';
-    if (secs <= 0) { clearInterval(state.revealTimer); doReveal(idx + 1); }
+    document.getElementById('revealTimerText').textContent = secs > 0 ? `${secs}秒後に馬名公開` : '公開！';
+    if (secs <= 0) {
+      clearInterval(state.revealTimer);
+      // Step 2: 馬名・性別を表示
+      document.getElementById('revealMother').textContent = pick.mother;
+      document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '♂ 牡馬' : '♀ 牝馬';
+      document.getElementById('revealGenderText').style.color = pick.gender === '牡' ? '#60a5fa' : '#f472b6';
+      setTimerBar(horseTime);
+      let secs2 = horseTime;
+      document.getElementById('revealTimerText').textContent = `${secs2}秒後に次へ`;
+      state.revealTimer = setInterval(() => {
+        secs2--;
+        document.getElementById('revealTimerText').textContent = secs2 > 0 ? `${secs2}秒後に次へ` : '次へ...';
+        if (secs2 <= 0) { clearInterval(state.revealTimer); doReveal(idx + 1); }
+      }, 1000);
+    }
   }, 1000);
+}
+
+function setTimerBar(secs) {
+  document.getElementById('timerFill').style.transition = 'none';
+  document.getElementById('timerFill').style.width = '100%';
+  setTimeout(() => {
+    document.getElementById('timerFill').style.transition = `width ${secs}s linear`;
+    document.getElementById('timerFill').style.width = '0%';
+  }, 50);
 }
 
 // subscribe to revealing_active for guests
@@ -888,14 +964,26 @@ async function checkConflicts() {
 }
 
 async function advanceRound() {
-  const round = state.session.current_round;
-  const total = state.session.total_picks;
+  // 最新のsessionを取得してから巡数を計算（キャッシュ値がずれていることがあるため）
+  const { data: sess } = await sb.from('draft_sessions').select('*').eq('id', state.sessionId).single();
+  if (!sess) return;
+  state.session = sess;
+  const round = sess.current_round;
+  const total = sess.total_picks;
   if (round >= total) {
     await sb.from('draft_sessions').update({ status: 'done' }).eq('id', state.sessionId);
   } else {
     await sb.from('draft_sessions').update({
       status: 'inputting', current_round: round + 1, current_player_idx: 0
     }).eq('id', state.sessionId);
+    // ホスト自身も即遷移
+    state.session.status = 'inputting';
+    state.session.current_round = round + 1;
+    state.selectedGender = '';
+    showPage('inputPage');
+    await loadState();
+    renderInputPage();
+    startInputPoller();
   }
 }
 
@@ -1031,6 +1119,17 @@ function exportCSV() {
   a.download = 'POGドラフト結果.csv';
   a.click();
 }
+
+// ── REVEAL MODE TOGGLE ───────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const modeEl = document.getElementById('revealMode');
+  if (modeEl) {
+    modeEl.addEventListener('change', () => {
+      document.getElementById('revealTimeFields').style.display =
+        modeEl.value === 'sequential' ? 'block' : 'none';
+    });
+  }
+});
 
 // ── INIT ─────────────────────────────────────────────────────
 // Check URL params for session restore
