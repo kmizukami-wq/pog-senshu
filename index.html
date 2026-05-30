@@ -450,8 +450,6 @@ async function createSession() {
   if (!name) { document.getElementById('createError').textContent = '名前を入力してください'; return; }
   const code = genCode();
   const totalPicks = parseInt(document.getElementById('pickCount').value);
-  const revealTime = parseInt(document.getElementById('revealTime').value) || 5;
-
   const nameTime = parseInt(document.getElementById('nameTime').value) || 3;
   const horseTime = parseInt(document.getElementById('horseTime').value) || 3;
   const { error: se } = await sb.from('draft_sessions').insert({
