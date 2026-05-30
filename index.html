@@ -500,6 +500,22 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
 </div>
 
 <div id="toast"></div>
+
+<div id="altPickModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:8000;align-items:center;justify-content:center;padding:20px">
+  <div class="card" style="width:100%;max-width:400px;padding:20px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px" id="altModalTitle">外れ指名を入力</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px" id="altModalSub"></div>
+    <div class="field" style="margin-bottom:10px">
+      <input type="text" id="altModalInput" placeholder="別の母馬名" inputmode="text" style="font-size:16px">
+    </div>
+    <div class="gender-toggle" style="margin-bottom:12px">
+      <button class="gender-btn" id="altModalMale" onclick="altModalSetGender('牡')">♂ 牡</button>
+      <button class="gender-btn" id="altModalFemale" onclick="altModalSetGender('牝')">♀ 牝</button>
+    </div>
+    <div style="color:#c0392b;font-size:12px;margin-bottom:10px;min-height:16px" id="altModalError"></div>
+    <button class="btn btn-primary" style="padding:12px" onclick="altModalSubmit()">外れ指名を確定</button>
+  </div>
+</div>
 <div class="footer-credit">Produced by Katsuma</div>
 
 <script>
@@ -1477,17 +1493,9 @@ function renderConflictPage() {
         if (alt) {
           inner += '<div style="font-size:12px;padding:8px;background:var(--color-background-secondary);border-radius:8px;margin-bottom:6px">' + p.player_name + '：外れ指名「' + alt.mother + '」' + alt.gender + ' ✓</div>';
         } else if (p.player_name === state.myName) {
-          const safeKey = key.replace(/[^a-zA-Z0-9]/g, '_');
           inner += '<div style="padding:12px;background:var(--gold-l);border-radius:8px;margin-bottom:6px;border:1px solid #e8c84a">';
           inner += '<div style="font-size:13px;font-weight:600;margin-bottom:8px">あなたの外れ指名を入力してください</div>';
-          inner += '<div class="field" style="margin-bottom:8px"><input type="text" id="alt_mother_' + safeKey + '" placeholder="別の母馬名" inputmode="text" style="background:white" class="zenkaku-input"></div>';
-          inner += '<div class="gender-toggle" style="margin-bottom:8px">';
-          inner += '<button class="gender-btn alt-male-btn" data-player="' + p.player_name + '">♂ 牡</button>';
-          inner += '<button class="gender-btn alt-female-btn" data-player="' + p.player_name + '">♀ 牝</button>';
-          inner += '</div>';
-          inner += '<button class="btn btn-primary submit-alt-btn" data-player="' + p.player_name + '" data-mother="' + mother + '" style="padding:10px">外れ指名を確定</button>';
-          state._conflictFormOpen = true;
-          inner += '<div class="alt-error-msg" data-player="' + p.player_name + '" style="color:#c0392b;font-size:12px;margin-top:6px"></div>';
+          inner += '<button class="btn btn-primary open-alt-modal-btn" data-player="' + p.player_name + '" data-mother="' + mother + '" style="padding:10px;width:100%">✏️ 外れ指名を入力する</button>';
           inner += '</div>';
         } else {
           inner += '<div style="font-size:12px;color:var(--muted);padding:8px;background:var(--color-background-secondary);border-radius:8px;margin-bottom:6px">' + p.player_name + '：外れ指名を入力中...</div>';
@@ -1524,15 +1532,9 @@ function renderConflictPage() {
   el.innerHTML = lines.join('');
 
   // 全角変換を動的inputに適用
-  el.querySelectorAll('.zenkaku-input').forEach(inp => bindZenkaku(inp));
-  el.querySelectorAll('.alt-male-btn').forEach(btn => {
-    btn.onclick = () => setAltGenderInline(btn.dataset.player, '牡');
+  el.querySelectorAll('.open-alt-modal-btn').forEach(btn => {
+    btn.onclick = () => openAltModal(btn.dataset.player, btn.dataset.mother);
   });
-  el.querySelectorAll('.alt-female-btn').forEach(btn => {
-    btn.onclick = () => setAltGenderInline(btn.dataset.player, '牝');
-  });
-  // 選択済み性別を復元
-  restoreAltGenderButtons();
 
   // data属性でイベント設定
   el.querySelectorAll('.approve-btn').forEach(btn => {
@@ -1650,6 +1652,55 @@ async function requestReinput(mother, playerName) {
   renderConflictPage();
 }
 
+
+// ── 外れ指名モーダル ─────────────────────────────────────────
+let _altModalPlayer = null;
+let _altModalMother = null;
+let _altModalGender = null;
+
+function openAltModal(playerName, conflictMother) {
+  _altModalPlayer = playerName;
+  _altModalMother = conflictMother;
+  _altModalGender = null;
+  document.getElementById('altModalTitle').textContent = '外れ指名を入力';
+  document.getElementById('altModalSub').textContent = '「' + conflictMother + '」は他の人が獲得しました';
+  document.getElementById('altModalInput').value = '';
+  document.getElementById('altModalError').textContent = '';
+  document.getElementById('altModalMale').className = 'gender-btn';
+  document.getElementById('altModalFemale').className = 'gender-btn';
+  const modal = document.getElementById('altPickModal');
+  modal.style.display = 'flex';
+  bindZenkaku(document.getElementById('altModalInput'));
+  setTimeout(() => document.getElementById('altModalInput').focus(), 100);
+}
+
+function altModalSetGender(gender) {
+  _altModalGender = gender;
+  document.getElementById('altModalMale').className = 'gender-btn' + (gender === '牡' ? ' active-male' : '');
+  document.getElementById('altModalFemale').className = 'gender-btn' + (gender === '牝' ? ' active-female' : '');
+}
+
+async function altModalSubmit() {
+  const mother = toZenkaku(document.getElementById('altModalInput').value.trim());
+  const errEl = document.getElementById('altModalError');
+  if (!mother) { errEl.textContent = '母名を入力してください'; return; }
+  if (!_altModalGender) { errEl.textContent = '性別を選択してください'; return; }
+  errEl.textContent = '';
+  const round = state.session.current_round;
+  await sb.from('draft_picks').delete()
+    .eq('session_id', state.sessionId).eq('player_name', _altModalPlayer)
+    .eq('round', round).eq('is_alt', true);
+  const { error } = await sb.from('draft_picks').insert({
+    session_id: state.sessionId, player_name: _altModalPlayer,
+    round, mother, gender: _altModalGender, is_alt: true
+  });
+  if (error) { errEl.textContent = 'エラー: ' + error.message; return; }
+  document.getElementById('altPickModal').style.display = 'none';
+  toast('外れ指名を登録しました');
+  const { data: freshPicks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
+  if (freshPicks) state.picks = freshPicks;
+  renderConflictPage();
+}
 
 function setAltGenderInline(playerName, gender) {
   if (!state.conflictGenders) state.conflictGenders = {};
