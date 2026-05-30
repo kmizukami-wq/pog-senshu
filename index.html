@@ -839,19 +839,1512 @@ function startConflictPoller() {
   state._conflictPoller = setInterval(async () => {
     const currentPage = document.querySelector('.page.active')?.id;
     if (currentPage !== 'conflictPage') { clearInterval(state._conflictPoller); return; }
-    await loadConflictWinners();
-    const { data: picks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
-    if (picks) state.picks = picks;
-    const { data: sess } = await sb.from('draft_sessions').select('status').eq('id', state.sessionId).single();
-    if (sess && sess.status !== 'conflict') {
+
+    const [winnersRes, picksRes, sessRes] = await Promise.all([
+      sb.from('conflict_winners').select('*').eq('session_id', state.sessionId).eq('round', state.session?.current_round),
+      sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at'),
+      sb.from('draft_sessions').select('*').eq('id', state.sessionId).single()
+    ]);
+
+    // winners を更新
+    state.conflictWinners = {};
+    (winnersRes.data || []).forEach(w => { state.conflictWinners[w.mother.toLowerCase()] = w.winner_name; });
+
+    if (picksRes.data) state.picks = picksRes.data;
+    if (sessRes.data) state.session = sessRes.data;
+
+    if (sessRes.data && sessRes.data.status !== 'conflict') {
       clearInterval(state._conflictPoller);
+      if (sessRes.data.status === 'closed') { handleSessionClosed(); return; }
+      await loadState();
+      renderByStatus(sessRes.data.status);
+      return;
+    }
+
+    renderConflictPage();
+  }, 1500);
+}
+
+function startRevealPoller() {
+  if (state._revealPoller) clearInterval(state._revealPoller);
+  state._revealPoller = setInterval(async () => {
+    const currentPage = document.querySelector('.page.active')?.id;
+    if (currentPage !== 'revealPage') { clearInterval(state._revealPoller); return; }
+    const { data: sess } = await sb.from('draft_sessions').select('*').eq('id', state.sessionId).single();
+    if (sess?.status === 'revealing_active' && !state._revealStarted) {
+      clearInterval(state._revealPoller);
+      state._revealStarted = true;
+      await loadState();
+      document.getElementById('revealModeSelect').style.display = 'none';
+      document.getElementById('revealGuestMsg').style.display = 'none';
+      const mode = state.session?.reveal_mode || 'sequential';
+      document.getElementById('revealModeLabel').textContent = mode === 'sequential' ? '順番に1人ずつ公開します' : '全員の指名馬を一括表示します';
+      if (mode === 'all') { showAllAtOnce(); }
+      else { doReveal(0); }
+    }
+  }, 1000);
+}
+
+function renderRevealPage() {
+  showPage('revealPage');
+  state._currentRevealMode = null; // リセット
+  document.getElementById('allAtOnceTable').style.display = 'none';
+  document.getElementById('revealQueue').style.display = 'none';
+  document.getElementById('revealHostBtn').style.display = 'none';
+  document.getElementById('revealGuestMsg').style.display = 'none';
+  document.getElementById('revealModeLabel').textContent = '';
+
+  if (state.isHost) {
+    // ホスト：モード選択UIを表示
+    document.getElementById('revealModeSelect').style.display = 'block';
+    document.getElementById('modeSeqBtn').className = 'btn btn-outline';
+    document.getElementById('modeAllBtn').className = 'btn btn-outline';
+  } else {
+    // ゲスト：待機メッセージ
+    document.getElementById('revealModeSelect').style.display = 'none';
+    document.getElementById('revealGuestMsg').style.display = 'block';
+  }
+}
+
+function selectRevealMode(mode) {
+  state._currentRevealMode = mode;
+  document.getElementById('modeSeqBtn').className = 'btn ' + (mode === 'sequential' ? 'btn-primary' : 'btn-outline');
+  document.getElementById('modeAllBtn').className = 'btn ' + (mode === 'all' ? 'btn-primary' : 'btn-outline');
+  // 選択に応じて説明とスタートボタンを表示
+  document.getElementById('revealModeLabel').textContent = mode === 'sequential' ? '順番に1人ずつ公開します' : '全員の指名馬を一括表示します';
+  if (mode === 'sequential') {
+    document.getElementById('revealQueue').style.display = 'block';
+    document.getElementById('revealQueue').innerHTML = state.players.map((p, i) => `
+      <div class="status-row">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="avatar" style="width:28px;height:28px;font-size:11px">${i+1}</div>
+          <span style="font-size:14px">${p.name}</span>
+        </div>
+        <span style="font-size:12px;color:var(--muted)">待機中</span>
+      </div>`).join('');
+  } else {
+    document.getElementById('revealQueue').style.display = 'none';
+  }
+  document.getElementById('revealHostBtn').style.display = 'block';
+}
+
+async function startReveal() {
+  if (!state.isHost) return;
+  const mode = state._currentRevealMode || 'sequential';
+  // DBにモードを保存してゲストに通知
+  await sb.from('draft_sessions').update({ reveal_idx: 0, status: 'revealing_active', reveal_mode: mode }).eq('id', state.sessionId);
+  await loadState();
+  document.getElementById('revealModeSelect').style.display = 'none';
+  document.getElementById('revealHostBtn').style.display = 'none';
+  if (mode === 'all') { showAllAtOnce(); }
+  else { doReveal(0); }
+}
+
+function showAllAtOnce() {
+  document.getElementById('revealQueue').style.display = 'none';
+  document.getElementById('revealHostBtn').style.display = 'none';
+  document.getElementById('revealGuestMsg').style.display = 'none';
+  const round = state.session.current_round;
+  const el = document.getElementById('allAtOnceTable');
+  el.style.display = 'block';
+  el.innerHTML = `<div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:12px">第${round}巡 指名馬一覧</div>` +
+    state.players.map(p => {
+      const pick = state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt);
+      const tag = pick ? (pick.gender === '牡' ? '<span class="tag tag-male">牡</span>' : '<span class="tag tag-female">牝</span>') : '';
+      return `<div class="status-row">
+        <span style="font-size:14px;font-weight:500">${p.name}</span>
+        <span style="font-size:14px">${pick ? pick.mother + ' ' : '—'} ${tag}</span>
+      </div>`;
+    }).join('') +
+    (state.isHost ? `<button class="btn btn-primary" style="margin-top:16px" onclick="finishReveal()">次の巡へ →</button>` : 
+     `<div style="font-size:13px;color:var(--muted);margin-top:16px;text-align:center">ホストが次の巡へ進めます</div>`);
+}
+
+async function finishReveal() {
+  if (!state.isHost) return;
+  await checkConflicts();
+}
+
+function doReveal(idx) {
+  if (idx >= state.players.length) {
+    document.getElementById('revealOverlay').style.display = 'none';
+    if (state.isHost) {
+      // ホスト：次の巡へ進むボタンを表示
+      showPage('revealPage');
+      document.getElementById('revealQueue').style.display = 'none';
+      document.getElementById('revealModeSelect').style.display = 'none';
+      document.getElementById('revealGuestMsg').style.display = 'none';
+      document.getElementById('allAtOnceTable').style.display = 'block';
+      const round = state.session.current_round;
+      document.getElementById('allAtOnceTable').innerHTML =
+        `<div style="font-size:15px;font-weight:700;margin-bottom:16px">第${round}巡 公開完了！</div>` +
+        state.players.map(p => {
+          const pick = state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt);
+          const tag = pick ? (pick.gender === '牡' ? '<span class="tag tag-male">牡</span>' : '<span class="tag tag-female">牝</span>') : '';
+          return `<div class="status-row">
+            <span style="font-size:13px;font-weight:500">${p.name}</span>
+            <span style="font-size:13px">${pick ? pick.mother + ' ' : '—'}${tag}</span>
+          </div>`;
+        }).join('') +
+        `<button class="btn btn-primary" style="margin-top:16px" onclick="finishReveal()">
+          ${round >= state.session.total_picks ? '🏆 ドラフト終了！' : `第${round+1}巡へ進む →`}
+        </button>`;
+    } else {
+      // ゲスト：次の巡へ自動遷移（ホストが進める）
+      document.getElementById('revealGuestMsg').style.display = 'block';
+      document.getElementById('revealGuestMsg').textContent = 'ホストが次の巡へ進めます...';
+    }
+    return;
+  }
+  const player = state.players[idx];
+  const pick = state.picks.find(p => p.player_name === player.name && p.round === state.session.current_round && !p.is_alt);
+  if (!pick) { doReveal(idx + 1); return; }
+
+  const nameTime = state.session.name_time || 3;
+  const horseTime = state.session.horse_time || 3;
+
+  // Step 1: 名前だけ表示
+  document.getElementById('revealRoundLabel').textContent = `第${state.session.current_round}巡`;
+  document.getElementById('revealOwnerName').textContent = player.name;
+  document.getElementById('revealMother').textContent = '？？？';
+  document.getElementById('revealGenderText').textContent = '？';
+  document.getElementById('revealGenderText').style.color = 'rgba(255,255,255,0.3)';
+  document.getElementById('revealOverlay').style.display = 'flex';
+
+  setTimerBar(nameTime);
+  let secs = nameTime;
+  document.getElementById('revealTimerText').textContent = `${secs}秒後に馬名公開`;
+  clearInterval(state.revealTimer);
+  state.revealTimer = setInterval(() => {
+    secs--;
+    document.getElementById('revealTimerText').textContent = secs > 0 ? `${secs}秒後に馬名公開` : '公開！';
+    if (secs <= 0) {
+      clearInterval(state.revealTimer);
+      // Step 2: 馬名・性別を表示
+      document.getElementById('revealMother').textContent = pick.mother;
+      document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '♂ 牡馬' : '♀ 牝馬';
+      document.getElementById('revealGenderText').style.color = pick.gender === '牡' ? '#60a5fa' : '#f472b6';
+      setTimerBar(horseTime);
+      let secs2 = horseTime;
+      document.getElementById('revealTimerText').textContent = `${secs2}秒後に次へ`;
+      state.revealTimer = setInterval(() => {
+        secs2--;
+        document.getElementById('revealTimerText').textContent = secs2 > 0 ? `${secs2}秒後に次へ` : '次へ...';
+        if (secs2 <= 0) { clearInterval(state.revealTimer); doReveal(idx + 1); }
+      }, 1000);
+    }
+  }, 1000);
+}
+
+function setTimerBar(secs) {
+  document.getElementById('timerFill').style.transition = 'none';
+  document.getElementById('timerFill').style.width = '100%';
+  setTimeout(() => {
+    document.getElementById('timerFill').style.transition = `width ${secs}s linear`;
+    document.getElementById('timerFill').style.width = '0%';
+  }, 50);
+}
+
+// subscribe to revealing_active for guests
+function subscribeReveal() {
+  if (!state.isHost) {
+    sb.channel('reveal-' + state.sessionId)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'draft_sessions', filter: 'id=eq.' + state.sessionId },
+        async payload => {
+          if (payload.new.status === 'revealing_active' && !state.isHost) {
+            await loadState();
+            showPage('revealPage');
+            doReveal(0);
+          }
+        }).subscribe();
+  }
+}
+
+// ── CONFLICTS ────────────────────────────────────────────────
+async function checkConflicts() {
+  // 必ず最新のpicksをDBから取得してから判定
+  const { data: freshPicks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
+  if (freshPicks) state.picks = freshPicks;
+  const { data: freshSess } = await sb.from('draft_sessions').select('*').eq('id', state.sessionId).single();
+  if (freshSess) state.session = freshSess;
+
+  const round = state.session.current_round;
+  const roundPicks = state.picks.filter(p => p.round === round && !p.is_alt);
+  const byMother = {};
+  roundPicks.forEach(p => {
+    const k = p.mother.toLowerCase();
+    if (!byMother[k]) byMother[k] = [];
+    byMother[k].push(p);
+  });
+  const conflicts = Object.values(byMother).filter(g => g.length > 1);
+  if (conflicts.length > 0) {
+    await sb.from('draft_sessions').update({ status: 'conflict' }).eq('id', state.sessionId);
+    state.session.status = 'conflict';
+    renderByStatus('conflict');
+  } else {
+    await advanceRound();
+  }
+}
+
+async function advanceRound() {
+  // 最新のsessionを取得してから巡数を計算（キャッシュ値がずれていることがあるため）
+  const { data: sess } = await sb.from('draft_sessions').select('*').eq('id', state.sessionId).single();
+  if (!sess) return;
+  state.session = sess;
+  const round = sess.current_round;
+  const total = sess.total_picks;
+  if (round >= total) {
+    await sb.from('draft_sessions').update({ status: 'done' }).eq('id', state.sessionId);
+  } else {
+    await sb.from('draft_sessions').update({
+      status: 'inputting', current_round: round + 1, current_player_idx: 0
+    }).eq('id', state.sessionId);
+    // ホスト自身も即遷移
+    state.session.status = 'inputting';
+    state.session.current_round = round + 1;
+    state.selectedGender = '';
+    showPage('inputPage');
+    await loadState();
+    renderInputPage();
+    startInputPoller();
+  }
+}
+
+function renderConflictPage() {
+  const round = state.session.current_round;
+  const roundPicks = state.picks.filter(p => p.round === round && !p.is_alt);
+  const byMother = {};
+  roundPicks.forEach(p => { const k = p.mother.toLowerCase(); if (!byMother[k]) byMother[k] = []; byMother[k].push(p); });
+  const conflicts = Object.values(byMother).filter(g => g.length > 1);
+
+  // ── 全員に被り状況を表示 ──
+  const overviewEl = document.getElementById('conflictOverview');
+  overviewEl.innerHTML = conflicts.map(group => {
+    const names = group.map(p => p.player_name).join('、');
+    const winner = state.conflictWinners?.[group[0].mother.toLowerCase()];
+    return `<div class="card" style="padding:12px;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">母名：${group[0].mother}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">被り：${names}</div>
+      ${winner
+        ? `<div style="font-size:13px;color:var(--green);font-weight:600">✓ ${winner} が獲得</div>`
+        : (state.isHost
+          ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">どちらが獲得しますか？</div>
+             <div class="btn-row">${group.map(p => `
+               <button class="btn btn-outline btn-sm" onclick="setConflictWinner('${group[0].mother}','${p.player_name}')" style="flex:1;font-size:12px">${p.player_name}</button>`).join('')}
+             </div>`
+          : `<div style="font-size:12px;color:var(--muted)">⏳ ホストが勝者を選択中...</div>`
+        )
+      }
+    </div>`;
+  }).join('');
+
+  // ── 自分が外れ入力が必要かチェック ──
+  const contentEl = document.getElementById('conflictContent');
+  const myConflicts = conflicts.filter(g => g.find(p => p.player_name === state.myName));
+
+  // 自分が被っていない
+  if (myConflicts.length === 0) {
+    contentEl.innerHTML = `<div class="card" style="text-align:center;padding:20px">
+      <div style="font-size:24px;margin-bottom:8px">👀</div>
+      <div style="font-size:14px">あなたの指名は被っていません。解決を待っています...</div>
+    </div>`;
+    checkConflictResolved(conflicts);
+    return;
+  }
+
+  // 自分が被っていて、勝者が決まっているかチェック
+  const myLosses = myConflicts.filter(g => {
+    const winner = state.conflictWinners?.[g[0].mother.toLowerCase()];
+    return winner && winner !== state.myName; // 自分が負けた被り
+  });
+  const myWins = myConflicts.filter(g => {
+    const winner = state.conflictWinners?.[g[0].mother.toLowerCase()];
+    return winner && winner === state.myName; // 自分が勝った
+  });
+  const myPending = myConflicts.filter(g => !state.conflictWinners?.[g[0].mother.toLowerCase()]);
+
+  // 勝者未決定あり
+  if (myPending.length > 0) {
+    contentEl.innerHTML = `<div class="card" style="text-align:center;padding:20px">
+      <div style="font-size:24px;margin-bottom:8px">⏳</div>
+      <div style="font-size:14px">${state.isHost ? '上で勝者を選んでください' : 'ホストが勝者を選択中...'}</div>
+    </div>`;
+    return;
+  }
+
+  // 自分の負け分の外れ指名入力
+  if (myLosses.length > 0) {
+    const notYetAlt = myLosses.filter(g => {
+      const mother = g[0].mother;
+      return !state.picks.find(pk => pk.player_name === state.myName && pk.round === round && pk.is_alt && pk.conflict_mother === mother);
+    });
+    if (notYetAlt.length > 0) {
+      const g = notYetAlt[0];
+      contentEl.innerHTML = `<div class="card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">「${g[0].mother}」は${state.conflictWinners[g[0].mother.toLowerCase()]}が獲得しました</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px">代わりの指名馬の母名を入力してください</div>
+        <div class="field"><label>外れ指名の母名</label>
+          <input type="text" id="altMotherInput" placeholder="別の母馬名" oninput="applyZenkaku(this)" inputmode="text">
+        </div>
+        <div class="field"><label>性別</label>
+          <div class="gender-toggle">
+            <button class="gender-btn" id="altBtnMale" onclick="setAltGender('牡')">♂ 牡</button>
+            <button class="gender-btn" id="altBtnFemale" onclick="setAltGender('牝')">♀ 牝</button>
+          </div>
+        </div>
+        <input type="hidden" id="altConflictMother" value="${g[0].mother}">
+        <button class="btn btn-primary" onclick="submitAlt()">外れ指名を確定</button>
+        <div id="altError" class="error-text"></div>
+      </div>`;
+      state.conflictGenders[state.myName] = '';
+      return;
+    }
+  }
+
+  // 全部解決済み
+  contentEl.innerHTML = `<div class="card" style="text-align:center;padding:20px">
+    <div style="font-size:24px;margin-bottom:8px">✅</div>
+    <div style="font-size:14px">${myWins.length > 0 ? '🎉 獲得しました！' : '外れ指名を登録しました。'}他の参加者を待っています...</div>
+  </div>`;
+  checkConflictResolved(conflicts);
+}
+
+async function setConflictWinner(mother, winnerName) {
+  if (!state.isHost) return;
+  const { error } = await sb.from('conflict_winners').upsert({
+    session_id: state.sessionId,
+    round: state.session.current_round,
+    mother: mother,
+    winner_name: winnerName
+  }, { onConflict: 'session_id,round,mother' });
+  if (error) { toast('エラー: ' + error.message); return; }
+  if (!state.conflictWinners) state.conflictWinners = {};
+  state.conflictWinners[mother.toLowerCase()] = winnerName;
+  renderConflictPage();
+}
+
+async function loadConflictWinners() {
+  const round = state.session?.current_round;
+  if (!round) return;
+  const { data } = await sb.from('conflict_winners').select('*').eq('session_id', state.sessionId).eq('round', round);
+  state.conflictWinners = {};
+  (data || []).forEach(w => { state.conflictWinners[w.mother.toLowerCase()] = w.winner_name; });
+}
+
+function checkConflictResolved(conflicts) {
+  if (!state.isHost) return;
+  const round = state.session.current_round;
+  // 全被りに勝者が決定済みか
+  const allWinnersSet = conflicts.every(g => state.conflictWinners?.[g[0].mother.toLowerCase()]);
+  if (!allWinnersSet) return;
+  // 敗者全員の外れ指名が入力済みか
+  const losers = [];
+  conflicts.forEach(g => {
+    const winner = state.conflictWinners[g[0].mother.toLowerCase()];
+    g.forEach(p => { if (p.player_name !== winner) losers.push({ name: p.player_name, mother: g[0].mother }); });
+  });
+  const allAltDone = losers.every(l =>
+    state.picks.find(pk => pk.player_name === l.name && pk.round === round && pk.is_alt)
+  );
+  if (allAltDone) setTimeout(() => advanceRound(), 500);
+}
+function setAltGender(g) {
+  state.conflictGenders[state.myName] = g;
+  document.getElementById('altBtnMale').className = 'gender-btn' + (g === '牡' ? ' active-male' : '');
+  document.getElementById('altBtnFemale').className = 'gender-btn' + (g === '牝' ? ' active-female' : '');
+}
+
+async function submitAlt() {
+  const mother = document.getElementById('altMotherInput')?.value?.trim();
+  const gender = state.conflictGenders[state.myName];
+  const conflictMother = document.getElementById('altConflictMother')?.value || '';
+  const errEl = document.getElementById('altError');
+  if (!mother) { errEl.textContent = '母名を入力してください'; return; }
+  if (!gender) { errEl.textContent = '性別を選択してください'; return; }
+  const round = state.session.current_round;
+  const { error } = await sb.from('draft_picks').insert({
+    session_id: state.sessionId, player_name: state.myName,
+    round, mother, gender, is_alt: true
+  });
+  if (error) { errEl.textContent = 'エラー: ' + error.message; return; }
+  toast('外れ指名を登録しました');
+  await loadState();
+  renderConflictPage();
+}
+
+// ── STANDINGS ────────────────────────────────────────────────
+function renderStandings() {
+  const el = document.getElementById('standingsContent');
+  const total = state.session?.total_picks || 10;
+  let html = `<table class="st"><thead><tr><th>巡</th>`;
+  state.players.forEach(p => { html += `<th>${p.name}</th>`; });
+  html += '</tr></thead><tbody>';
+  for (let r = 1; r <= total; r++) {
+    html += `<tr><td><span class="round-pill" style="font-size:10px;padding:2px 8px">第${r}巡</span></td>`;
+    state.players.forEach(p => {
+      const pick = state.picks.find(pk => pk.player_name === p.name && pk.round === r && !pk.is_alt);
+      const alt = state.picks.find(pk => pk.player_name === p.name && pk.round === r && pk.is_alt);
+      if (pick) {
+        const tag = pick.gender === '牡' ? '<span class="tag tag-male">牡</span>' : '<span class="tag tag-female">牝</span>';
+        html += `<td class="pick-cell">${pick.mother} ${tag}${alt ? `<br><span style="font-size:10px;color:var(--muted)">外：${alt.mother}</span>` : ''}</td>`;
+      } else {
+        html += `<td style="color:var(--subtle);font-size:12px">—</td>`;
+      }
+    });
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderFinal() {
+  renderStandings();
+  document.getElementById('finalSummary').innerHTML = document.getElementById('standingsContent').innerHTML;
+}
+
+// ── CSV EXPORT ───────────────────────────────────────────────
+function exportCSV() {
+  const total = state.session?.total_picks || 10;
+  let csv = 'No.';
+  state.players.forEach(p => { csv += `,${p.name}_母名,${p.name}_性別`; });
+  csv += '\n';
+  for (let r = 1; r <= total; r++) {
+    csv += r;
+    state.players.forEach(p => {
+      const pick = state.picks.find(pk => pk.player_name === p.name && pk.round === r && !pk.is_alt);
+      csv += pick ? `,${pick.mother},${pick.gender}` : `,,`;
+    });
+    csv += '\n';
+  }
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'POGドラフト結果.csv';
+  a.click();
+}
+
+// ── 全角変換 ───────────────────────────────────────────────────
+function toZenkaku(str) {
+  return str
+    // 半角英数字・記号 → 全角
+    .replace(/[A-Za-z0-9]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0))
+    // 半角スペース → 全角スペース
+    .replace(/ /g, '　')
+    // 半角カタカナ → 全角カタカナ
+    .replace(/[｡-ﾟ]/g, c => {
+      const map = {
+        '｡':'。','｢':'「','｣':'」','､':'、','･':'・',
+        'ｦ':'ヲ','ｧ':'ァ','ｨ':'ィ','ｩ':'ゥ','ｪ':'ェ',
+        'ｫ':'ォ','ｬ':'ャ','ｭ':'ュ','ｮ':'ョ','ｯ':'ッ',
+        'ｰ':'ー','ｱ':'ア','ｲ':'イ','ｳ':'ウ','ｴ':'エ',
+        'ｵ':'オ','ｶ':'カ','ｷ':'キ','ｸ':'ク','ｹ':'ケ',
+        'ｺ':'コ','ｻ':'サ','ｼ':'シ','ｽ':'ス','ｾ':'セ',
+        'ｿ':'ソ','ﾀ':'タ','ﾁ':'チ','ﾂ':'ツ','ﾃ':'テ',
+        'ﾄ':'ト','ﾅ':'ナ','ﾆ':'ニ','ﾇ':'ヌ','ﾈ':'ネ',
+        'ﾉ':'ノ','ﾊ':'ハ','ﾋ':'ヒ','ﾌ':'フ','ﾍ':'ヘ',
+        'ﾎ':'ホ','ﾏ':'マ','ﾐ':'ミ','ﾑ':'ム','ﾒ':'メ',
+        'ﾓ':'モ','ﾔ':'ヤ','ﾕ':'ユ','ﾖ':'ヨ','ﾗ':'ラ',
+        'ﾘ':'リ','ﾙ':'ル','ﾚ':'レ','ﾛ':'ロ','ﾜ':'ワ',
+        'ﾝ':'ン','ﾞ':'゛','ﾟ':'゜'
+      };
+      return map[c] || c;
+    });
+}
+
+function applyZenkaku(el) {
+  const pos = el.selectionStart;
+  const converted = toZenkaku(el.value);
+  if (converted !== el.value) {
+    el.value = converted;
+    el.setSelectionRange(pos, pos);
+  }
+}
+
+// ── RESUME ───────────────────────────────────────────────────
+async function confirmNewDraft() {
+  if (!confirm('現在のドラフト会議を終了して新しく作成しますか？\n参加者全員のセッションが閉じられます。')) return;
+  // DBのステータスをclosedに
+  await sb.from('draft_sessions').update({ status: 'closed' }).eq('id', state.sessionId);
+  handleSessionClosed();
+}
+
+function handleSessionClosed() {
+  // ポーラー全停止
+  clearInterval(state._inputPoller);
+  clearInterval(state._lobbyPoller);
+  clearInterval(state._revealPoller);
+  clearInterval(state._conflictPoller);
+  // localStorage・URL・state をリセット
+  localStorage.removeItem('pog_session');
+  localStorage.removeItem('pog_host_' + state.sessionId);
+  history.replaceState({}, '', location.pathname);
+  state.sessionId = null;
+  state.myName = null;
+  state.isHost = false;
+  state.session = null;
+  state.players = [];
+  state.picks = [];
+  // ヘッダーをリセット
+  document.getElementById('sessionBadge').style.display = 'none';
+  document.getElementById('newDraftBtn').style.display = 'none';
+  showPage('homePage');
+  toast('セッションを終了しました');
+}
+
+function clearSession() {
+  localStorage.removeItem('pog_session');
+  document.getElementById('resumeBtn').style.display = 'none';
+  toast('セッション履歴を消去しました');
+}
+
+function resumeLastSession() {
+  const saved = localStorage.getItem('pog_session');
+  if (!saved) return;
+  try {
+    const { sessionId, name, isHost } = JSON.parse(saved);
+    restoreSession(sessionId, name, isHost);
+  } catch(e) {}
+}
+
+// ホームページ表示時に前回セッションがあればボタンを出す
+function checkResumeBtn() {
+  const saved = localStorage.getItem('pog_session');
+  if (saved) {
+    try {
+      const { sessionId, name } = JSON.parse(saved);
+      document.getElementById('resumeBtn').style.display = 'block';
+      document.getElementById('resumeInfo').textContent = `ルーム: ${sessionId}（${name}）`;
+    } catch(e) {}
+  }
+}
+
+// ── INIT ─────────────────────────────────────────────────────
+async function restoreSession(sessionId, name, isHost) {
+  state.sessionId = sessionId;
+  state.myName = name;
+  state.isHost = isHost;
+  await loadState();
+  if (!state.session) {
+    // セッションが存在しない（期限切れ等）→ ホームへ
+    localStorage.removeItem('pog_session');
+    showPage('homePage');
+    toast('セッションが見つかりません');
+    return;
+  }
+  document.getElementById('sessionBadge').textContent = 'ルーム: ' + sessionId;
+  document.getElementById('sessionBadge').style.display = 'inline-block';
+  // URLも最新に保つ
+  history.replaceState({}, '', '?session=' + sessionId + '&name=' + encodeURIComponent(name));
+  subscribeReveal();
+  if (state.session.status === 'lobby') {
+    await enterLobby();
+  } else {
+    subscribeAll();
+    renderByStatus(state.session.status);
+  }
+}
+
+(async () => {
+  // 1. URLパラメータ優先
+  const params = new URLSearchParams(location.search);
+  if (params.get('session') && params.get('name')) {
+    const sessionId = params.get('session');
+    const name = decodeURIComponent(params.get('name'));
+    const isHost = localStorage.getItem('pog_host_' + sessionId) === '1';
+    await restoreSession(sessionId, name, isHost);
+    return;
+  }
+  // 2. URLになければlocalStorageから復元（アクティブなセッションのみ）
+  const saved = localStorage.getItem('pog_session');
+  if (saved) {
+    try {
+      const { sessionId, name, isHost } = JSON.parse(saved);
+      if (sessionId && name) {
+        // まずセッション状態を確認してからdoneなら復帰しない
+        const { data: sess } = await sb.from('draft_sessions').select('status').eq('id', sessionId).single();
+        if (sess && sess.status !== 'done') {
+          await restoreSession(sessionId, name, isHost);
+          return;
+        } else {
+          // 終了済みor存在しないセッションはlocalStorageを消してホームへ
+          localStorage.removeItem('pog_session');
+        }
+      }
+    } catch(e) {
+      localStorage.removeItem('pog_session');
+    }
+  }
+  // 3. 何もなければホーム画面
+  showPage('homePage');
+})();
+</script>
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>🏇 POG ドラフト会議</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --green:#1a6b3c;--green-d:#0d5c33;--green-l:#e8f5ee;
+  --gold:#c9971c;--gold-l:#fdf3d8;
+  --red:#c0392b;--red-l:#fce8e8;
+  --bg:#f7f5f0;--card:#ffffff;--border:#e0ddd6;
+  --text:#1a1a18;--muted:#6b6b66;--subtle:#9b9b96;
+  --radius:12px;--radius-sm:8px;
+}
+@media(prefers-color-scheme:dark){
+  :root{--bg:#111110;--card:#1c1c1a;--border:#2e2e2a;--text:#f0ede8;--muted:#9b9b96;--subtle:#6b6b66;}
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;}
+
+/* HEADER */
+.header{background:linear-gradient(135deg,#0d2e1a 0%,#1a4a2e 50%,#0d3d20 100%);
+  padding:16px;text-align:center;position:sticky;top:0;z-index:100;
+  box-shadow:0 2px 20px rgba(0,0,0,0.4);}
+.header h1{color:#f5d76e;font-size:18px;font-weight:800;letter-spacing:3px;}
+.header-sub{color:rgba(255,255,255,0.5);font-size:10px;letter-spacing:2px;margin-top:2px;}
+.session-badge{display:inline-block;background:rgba(245,215,110,0.15);border:1px solid rgba(245,215,110,0.3);
+  color:#f5d76e;font-size:11px;padding:2px 10px;border-radius:99px;margin-top:6px;letter-spacing:1px;}
+
+/* PAGES */
+.page{display:none;padding:16px;max-width:480px;margin:0 auto;}
+.page.active{display:block;}
+
+/* CARDS */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
+.card-title{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px;}
+
+/* BUTTONS */
+.btn{display:block;width:100%;padding:14px;border-radius:var(--radius-sm);font-size:15px;font-weight:600;
+  cursor:pointer;border:none;transition:all 0.15s;text-align:center;letter-spacing:0.5px;}
+.btn-primary{background:var(--green);color:white;}
+.btn-primary:hover{background:var(--green-d);}
+.btn-primary:active{transform:scale(0.98);}
+.btn-gold{background:var(--gold);color:white;}
+.btn-gold:hover{background:#a87d17;}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text);}
+.btn-outline:hover{background:var(--bg);}
+.btn-sm{padding:8px 14px;font-size:13px;border-radius:6px;display:inline-block;width:auto;}
+.btn-danger{background:var(--red);color:white;}
+.btn-row{display:flex;gap:8px;}
+.btn-row .btn{flex:1;}
+
+/* INPUTS */
+input,select{width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--bg);color:var(--text);font-size:15px;font-family:inherit;outline:none;transition:border 0.2s;}
+input:focus,select:focus{border-color:var(--green);}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:500;}
+.field{margin-bottom:14px;}
+
+/* GENDER TOGGLE */
+.gender-toggle{display:flex;gap:8px;}
+.gender-btn{flex:1;padding:12px;border-radius:var(--radius-sm);border:1px solid var(--border);
+  background:var(--bg);color:var(--text);font-size:15px;cursor:pointer;transition:all 0.15s;font-weight:500;}
+.gender-btn.active-male{background:#1e40af;color:white;border-color:#1e40af;}
+.gender-btn.active-female{background:#9d174d;color:white;border-color:#9d174d;}
+
+/* TAGS */
+.tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;}
+.tag-male{background:#dbeafe;color:#1e40af;}
+.tag-female{background:#fce7f3;color:#9d174d;}
+
+/* ROUND BADGE */
+.round-pill{display:inline-block;background:var(--gold-l);color:#7a5a0a;
+  padding:4px 14px;border-radius:99px;font-size:12px;font-weight:700;border:1px solid #e8c84a;}
+
+/* PLAYER AVATAR */
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--green);color:white;
+  display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;}
+
+/* PROGRESS DOTS */
+.dots{display:flex;gap:4px;flex-wrap:wrap;}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--border);}
+.dot.done{background:var(--green);}
+.dot.active{background:var(--gold);animation:pulse 1s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+
+/* STATUS LIST */
+.status-row{display:flex;align-items:center;justify-content:space-between;
+  padding:8px 0;border-bottom:1px solid var(--border);}
+.status-row:last-child{border-bottom:none;}
+.status-indicator{width:8px;height:8px;border-radius:50%;margin-right:8px;flex-shrink:0;}
+.si-done{background:#27ae60;}
+.si-active{background:var(--gold);animation:pulse 1s infinite;}
+.si-wait{background:var(--border);}
+
+/* REVEAL OVERLAY */
+#revealOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.95);
+  display:none;align-items:center;justify-content:center;z-index:9999;padding:20px;}
+.reveal-card{background:linear-gradient(135deg,#0d2e1a,#1a4a2e);
+  border:2px solid #f5d76e;border-radius:24px;padding:36px 28px;
+  text-align:center;max-width:340px;width:100%;position:relative;overflow:hidden;
+  animation:revealIn 0.5s cubic-bezier(0.34,1.56,0.64,1);}
+@keyframes revealIn{from{transform:scale(0.7);opacity:0}to{transform:scale(1);opacity:1}}
+.reveal-card::before{content:'🐎';font-size:100px;position:absolute;
+  bottom:-30px;right:-20px;opacity:0.1;transform:scaleX(-1);}
+.reveal-round-label{color:rgba(245,215,110,0.7);font-size:11px;letter-spacing:3px;margin-bottom:6px;}
+.reveal-owner{color:white;font-size:30px;font-weight:800;margin-bottom:20px;
+  text-shadow:0 0 20px rgba(245,215,110,0.3);}
+.reveal-horse-box{background:rgba(245,215,110,0.1);border:1px solid rgba(245,215,110,0.3);
+  border-radius:14px;padding:20px;margin-bottom:16px;}
+.reveal-mother{color:#f5d76e;font-size:26px;font-weight:800;margin-bottom:10px;}
+.reveal-gender{font-size:18px;font-weight:600;}
+.reveal-timer{color:rgba(255,255,255,0.4);font-size:13px;}
+.timer-bar{height:3px;background:rgba(255,255,255,0.1);border-radius:2px;margin-top:12px;overflow:hidden;}
+.timer-fill{height:100%;background:#f5d76e;border-radius:2px;transition:width 1s linear;}
+
+/* CONFLICT */
+.conflict-alert{background:#fef3cd;border:1px solid #f5c518;border-radius:var(--radius-sm);
+  padding:12px;margin-bottom:12px;font-size:13px;}
+
+/* STANDINGS TABLE */
+.standings-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
+.st th{background:var(--green-d);color:#f5d76e;padding:8px 6px;white-space:nowrap;font-size:11px;position:sticky;top:0;}
+.st td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top;}
+.st tr:hover td{background:var(--bg);}
+
+/* NOTIFICATION TOAST */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(100px);
+  background:#1a1a18;color:white;padding:10px 20px;border-radius:99px;font-size:13px;
+  transition:transform 0.3s;z-index:99999;white-space:nowrap;}
+#toast.show{transform:translateX(-50%) translateY(0);}
+
+/* NAV */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);
+  border-top:1px solid var(--border);display:flex;padding:8px 0 max(8px,env(safe-area-inset-bottom));z-index:50;}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:6px;cursor:pointer;background:none;border:none;color:var(--muted);font-size:10px;}
+.nav-btn.active{color:var(--green);}
+.nav-icon{font-size:20px;}
+
+/* LOADING */
+.loading{text-align:center;padding:40px;color:var(--muted);}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--green);
+  border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* MISC */
+.error-text{color:var(--red);font-size:13px;margin-top:6px;}
+.fade-in{animation:fadeIn 0.3s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.section-gap{height:80px;}
+.verify-status{font-size:12px;margin-top:4px;min-height:18px;}
+.pick-cell{font-size:12px;line-height:1.5;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div id="newDraftBtn" style="display:none;position:absolute;top:12px;right:12px">
+    <button onclick="confirmNewDraft()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);
+      color:white;font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer;white-space:nowrap">
+      ＋ 新規作成
+    </button>
+  </div>
+  <h1>🏇 POG ドラフト会議</h1>
+  <div class="header-sub">PICK OF THE GRASS</div>
+  <div id="sessionBadge" style="display:none" class="session-badge"></div>
+</div>
+
+<!-- PAGES -->
+<div id="homePage" class="page active">
+  <div style="padding-top:20px">
+    <div class="card" style="text-align:center;padding:28px 20px">
+      <div style="font-size:48px;margin-bottom:12px">🏇</div>
+      <div style="font-size:20px;font-weight:800;margin-bottom:6px">POG ドラフト</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:24px">身内でリアルタイムドラフト会議</div>
+      <button class="btn btn-primary" onclick="localStorage.removeItem('pog_session');showPage('createPage')" style="margin-bottom:10px">🆕 新しいドラフトを作成</button>
+      <button class="btn btn-outline" onclick="localStorage.removeItem('pog_session');showPage('joinPage')">🔗 参加コードで参加</button>
+      <div id="resumeBtn" style="display:none;margin-top:10px">
+        <button class="btn btn-outline" onclick="resumeLastSession()" style="border-color:var(--gold);color:var(--gold)">
+          🔄 前回のセッションに戻る
+        </button>
+        <div id="resumeInfo" style="font-size:11px;color:var(--muted);margin-top:4px;text-align:center"></div>
+        <button class="btn btn-outline btn-sm" onclick="clearSession()" style="margin-top:6px;width:100%;font-size:12px;color:var(--muted)">
+          ✕ セッション履歴を消去
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="createPage" class="page">
+  <div style="padding-top:16px">
+    <div class="card">
+      <div class="card-title">ドラフト設定</div>
+      <div class="field">
+        <label>あなたの名前（ホスト）</label>
+        <input type="text" id="hostName" placeholder="例：田中">
+      </div>
+      <div class="field">
+        <label>参加人数</label>
+        <select id="playerCount">
+          <option value="2">2人</option><option value="3">3人</option>
+          <option value="4">4人</option><option value="5" selected>5人</option>
+          <option value="6">6人</option><option value="7">7人</option><option value="8">8人</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>指名頭数</label>
+        <select id="pickCount">
+          <option value="5">5頭</option><option value="10" selected>10頭</option><option value="15">15頭</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>名前表示時間（秒）</label>
+        <input type="number" id="nameTime" value="3" min="1" max="30">
+      </div>
+      <div class="field">
+        <label>馬名・性別表示時間（秒）</label>
+        <input type="number" id="horseTime" value="3" min="1" max="30">
+      </div>
+      <button class="btn btn-primary" onclick="createSession()">ドラフトルームを作成 →</button>
+      <div id="createError" class="error-text"></div>
+    </div>
+    <button class="btn btn-outline" onclick="showPage('homePage')" style="margin-top:4px">← 戻る</button>
+  </div>
+</div>
+
+<div id="joinPage" class="page">
+  <div style="padding-top:16px">
+    <div class="card">
+      <div class="card-title">ルームに参加</div>
+      <div class="field">
+        <label>あなたの名前</label>
+        <input type="text" id="joinName" placeholder="例：鈴木">
+      </div>
+      <div class="field">
+        <label>参加コード（4桁）</label>
+        <input type="text" id="joinCode" placeholder="例：A3F9" maxlength="6"
+          style="text-transform:uppercase;letter-spacing:4px;font-size:20px;text-align:center">
+      </div>
+      <button class="btn btn-primary" onclick="joinSession()">参加する →</button>
+      <div id="joinError" class="error-text"></div>
+    </div>
+    <button class="btn btn-outline" onclick="showPage('homePage')" style="margin-top:4px">← 戻る</button>
+  </div>
+</div>
+
+<div id="lobbyPage" class="page">
+  <div style="padding-top:16px">
+    <div class="card" style="text-align:center">
+      <div class="card-title">参加コードをシェア</div>
+      <div id="lobbyCode" style="font-size:48px;font-weight:900;letter-spacing:8px;color:var(--green);margin:12px 0"></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">全員がこのコードで参加してください</div>
+      <button class="btn btn-outline btn-sm" onclick="copyCode()" style="display:inline-block;width:auto;padding:8px 20px">コードをコピー</button>
+    </div>
+    <div class="card">
+      <div class="card-title">参加者 <span id="playerCountBadge" style="color:var(--green)"></span></div>
+      <div id="lobbyPlayerList"></div>
+    </div>
+    <div id="lobbyHostActions" style="display:none">
+      <button class="btn btn-primary" id="startDraftBtn" onclick="startDraft()">🏁 ドラフト開始！</button>
+      <div style="font-size:12px;color:var(--muted);text-align:center;margin-top:8px">全員参加後にスタートしてください</div>
+    </div>
+    <div id="lobbyGuestMsg" style="display:none;text-align:center;padding:12px;color:var(--muted);font-size:14px">
+      ホストがドラフトを開始するまでお待ちください...
+    </div>
+  </div>
+</div>
+
+<div id="inputPage" class="page">
+  <div style="padding-top:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <span class="round-pill" id="roundLabel">第1巡</span>
+      <button class="btn btn-outline btn-sm" onclick="showPage('standingsPage');renderStandings()">📋 状況</button>
+    </div>
+    <div id="inputDots" class="dots" style="margin-bottom:14px"></div>
+
+    <!-- 自分の番 -->
+    <div id="myTurnCard" class="card fade-in" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <div class="avatar" id="myAvatar">？</div>
+        <div>
+          <div style="font-size:16px;font-weight:700" id="myTurnName">—</div>
+          <div style="font-size:12px;color:var(--muted)">あなたの番です！</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>母馬名</label>
+        <input type="text" id="motherInput" placeholder="例：ウオッカ" oninput="applyZenkaku(this);onMotherInput()" inputmode="text">
+        <div class="verify-status" id="verifyStatus"></div>
+      </div>
+      <div class="field">
+        <label>性別</label>
+        <div class="gender-toggle">
+          <button class="gender-btn" id="btnMale" onclick="selectGender('牡')">♂ 牡</button>
+          <button class="gender-btn" id="btnFemale" onclick="selectGender('牝')">♀ 牝</button>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="submitPick()">指名を確定 →</button>
+      <div id="pickError" class="error-text"></div>
+    </div>
+
+    <!-- 他の人の番 -->
+    <div id="waitCard" class="card" style="display:none;text-align:center;padding:24px">
+      <div style="font-size:32px;margin-bottom:8px">⏳</div>
+      <div id="waitName" style="font-size:16px;font-weight:700;margin-bottom:6px">—</div>
+      <div style="font-size:13px;color:var(--muted)">が入力中...</div>
+    </div>
+
+    <!-- 全員入力待ち中（自分は完了） -->
+    <div id="doneWaitCard" class="card" style="display:none;text-align:center;padding:24px">
+      <div style="font-size:32px;margin-bottom:8px">✅</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">入力完了！</div>
+      <div style="font-size:13px;color:var(--muted)">他の参加者の入力を待っています...</div>
+    </div>
+
+    <div class="card" style="padding:12px" id="roundStatusCard">
+      <div class="card-title" style="margin-bottom:8px">今巡の状況</div>
+      <div id="roundStatusList"></div>
+    </div>
+  </div>
+</div>
+
+<div id="revealPage" class="page">
+  <div style="padding-top:16px;text-align:center">
+    <div class="card" style="padding:28px">
+      <div style="font-size:36px;margin-bottom:8px">🎯</div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:6px">全員の入力完了！</div>
+      <div id="revealModeSelect" style="display:none;margin-bottom:20px">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:10px">この巡の公開方法を選んでください</div>
+        <div class="btn-row">
+          <button class="btn btn-outline" id="modeSeqBtn" onclick="selectRevealMode('sequential')" style="font-size:13px">🎴 順番に公開</button>
+          <button class="btn btn-outline" id="modeAllBtn" onclick="selectRevealMode('all')" style="font-size:13px">📋 一括表示</button>
+        </div>
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:20px" id="revealModeLabel"></div>
+      <div id="revealQueue" style="margin-bottom:20px;text-align:left"></div>
+      <div id="allAtOnceTable" style="display:none;margin-bottom:20px;text-align:left"></div>
+      <div id="revealHostBtn" style="display:none">
+        <button class="btn btn-gold" onclick="startReveal()">🎯 公開スタート！</button>
+      </div>
+      <div id="revealGuestMsg" style="display:none;font-size:13px;color:var(--muted)">
+        ホストが公開を開始するまでお待ちください...
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="conflictPage" class="page">
+  <div style="padding-top:16px">
+    <div class="conflict-alert">
+      <strong>⚠️ 指名被り検出！</strong><br>
+      同じ母名で指名が重複しています。
+    </div>
+    <div id="conflictOverview" style="margin-bottom:12px"></div>
+    <div id="conflictContent"></div>
+  </div>
+</div>
+
+<div id="standingsPage" class="page">
+  <div style="padding-top:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <span style="font-size:14px;font-weight:600">指名状況</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="exportCSV()">CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="goBack()">← 戻る</button>
+      </div>
+    </div>
+    <div class="standings-wrap">
+      <div id="standingsContent"></div>
+    </div>
+    <div class="section-gap"></div>
+  </div>
+</div>
+
+<div id="finalPage" class="page">
+  <div style="padding-top:16px;text-align:center">
+    <div style="font-size:48px;margin-bottom:8px">🏆</div>
+    <div style="font-size:20px;font-weight:800;margin-bottom:4px">ドラフト完了！</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:20px">全指名が確定しました</div>
+    <div class="btn-row" style="margin-bottom:16px">
+      <button class="btn btn-primary" onclick="showPage('standingsPage');renderStandings()">📋 最終一覧</button>
+      <button class="btn btn-gold" onclick="exportCSV()">📊 CSV</button>
+    </div>
+    <div id="finalSummary"></div>
+  </div>
+</div>
+
+<!-- REVEAL OVERLAY -->
+<div id="revealOverlay">
+  <div class="reveal-card">
+    <div class="reveal-round-label" id="revealRoundLabel">第1巡</div>
+    <div class="reveal-owner" id="revealOwnerName">—</div>
+    <div class="reveal-horse-box">
+      <div class="reveal-mother" id="revealMother">—</div>
+      <div class="reveal-gender" id="revealGenderText">—</div>
+    </div>
+    <div class="reveal-timer" id="revealTimerText">5秒後に次へ...</div>
+    <div class="timer-bar"><div class="timer-fill" id="timerFill" style="width:100%"></div></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const SUPABASE_URL = 'https://ywmptfpkuvfondwhcmmr.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl3bXB0ZnBrdXZmb25kd2hjbW1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxMDQwNjEsImV4cCI6MjA5NTY4MDA2MX0.T1Jhljt8YGVrFpXuy_qj9FIOtrauroWSLBaDGTeOj9w';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let state = {
+  sessionId: null,
+  myName: null,
+  isHost: false,
+  players: [],
+  session: null,
+  picks: [],
+  prevPage: null,
+  selectedGender: '',
+  revealTimer: null,
+  verifyTimeout: null,
+  conflictGenders: {},
+};
+
+// ── NAVIGATION ──────────────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.remove('active');
+  });
+  const el = document.getElementById(id);
+  if (el) { el.classList.add('active'); }
+  if (id === 'homePage') checkResumeBtn();
+}
+
+function goBack() {
+  showPage(state.prevPage || 'inputPage');
+  if (state.prevPage === 'inputPage') renderInputPage();
+}
+
+// ── TOAST ────────────────────────────────────────────────────
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── CREATE SESSION ───────────────────────────────────────────
+function genCode() {
+  return Math.random().toString(36).slice(2,6).toUpperCase();
+}
+
+async function createSession() {
+  const name = document.getElementById('hostName').value.trim();
+  if (!name) { document.getElementById('createError').textContent = '名前を入力してください'; return; }
+  const code = genCode();
+  const totalPicks = parseInt(document.getElementById('pickCount').value);
+  const nameTime = parseInt(document.getElementById('nameTime').value) || 3;
+  const horseTime = parseInt(document.getElementById('horseTime').value) || 3;
+  const { error: se } = await sb.from('draft_sessions').insert({
+    id: code,
+    host_name: name,
+    status: 'lobby',
+    total_picks: totalPicks,
+    reveal_time: nameTime + horseTime,
+    reveal_mode: 'sequential',
+    name_time: nameTime,
+    horse_time: horseTime,
+    current_round: 1,
+    current_player_idx: 0,
+    reveal_idx: 0,
+  });
+  if (se) { document.getElementById('createError').textContent = '作成に失敗しました: ' + se.message; return; }
+
+  const { error: pe } = await sb.from('draft_players').insert({ session_id: code, name, order_idx: 0 });
+  if (pe) { document.getElementById('createError').textContent = 'エラー: ' + pe.message; return; }
+
+  state.sessionId = code;
+  state.myName = name;
+  state.isHost = true;
+  localStorage.setItem('pog_host_' + code, '1');
+  localStorage.setItem('pog_session', JSON.stringify({ sessionId: code, name, isHost: true }));
+  history.replaceState({}, '', '?session=' + code + '&name=' + encodeURIComponent(name));
+  document.getElementById('sessionBadge').textContent = 'ルーム: ' + code;
+  document.getElementById('sessionBadge').style.display = 'inline-block';
+  enterLobby();
+}
+
+// ── JOIN SESSION ─────────────────────────────────────────────
+async function joinSession() {
+  const name = document.getElementById('joinName').value.trim();
+  const code = document.getElementById('joinCode').value.trim().toUpperCase();
+  if (!name) { document.getElementById('joinError').textContent = '名前を入力してください'; return; }
+  if (!code) { document.getElementById('joinError').textContent = 'コードを入力してください'; return; }
+
+  const { data: sess, error } = await sb.from('draft_sessions').select('*').eq('id', code).single();
+  if (error || !sess) { document.getElementById('joinError').textContent = 'ルームが見つかりません'; return; }
+
+  // check duplicate name
+  const { data: existing } = await sb.from('draft_players').select('name').eq('session_id', code);
+  if (existing && existing.find(p => p.name === name)) {
+    document.getElementById('joinError').textContent = 'この名前はすでに使われています';
+    return;
+  }
+  const { error: pe } = await sb.from('draft_players').insert({
+    session_id: code, name, order_idx: (existing?.length || 0)
+  });
+  if (pe) { document.getElementById('joinError').textContent = 'エラー: ' + pe.message; return; }
+
+  state.sessionId = code;
+  state.myName = name;
+  state.isHost = false;
+  localStorage.setItem('pog_session', JSON.stringify({ sessionId: code, name, isHost: false }));
+  history.replaceState({}, '', '?session=' + code + '&name=' + encodeURIComponent(name));
+  document.getElementById('sessionBadge').textContent = 'ルーム: ' + code;
+  document.getElementById('sessionBadge').style.display = 'inline-block';
+
+  if (sess.status !== 'lobby') {
+    // rejoin mid-game
+    await loadState();
+    renderByStatus(sess.status);
+    return;
+  }
+  enterLobby();
+}
+
+// ── LOBBY ────────────────────────────────────────────────────
+async function enterLobby() {
+  showPage('lobbyPage');
+  document.getElementById('lobbyCode').textContent = state.sessionId;
+  document.getElementById('lobbyHostActions').style.display = state.isHost ? 'block' : 'none';
+  document.getElementById('lobbyGuestMsg').style.display = state.isHost ? 'none' : 'block';
+  if (state.isHost) document.getElementById('newDraftBtn').style.display = 'block';
+  subscribeAll();
+  await loadLobby();
+  // Poll every 3s as fallback for realtime
+  if (state._lobbyPoller) clearInterval(state._lobbyPoller);
+  state._lobbyPoller = setInterval(async () => {
+    const currentPage = document.querySelector('.page.active')?.id;
+    if (currentPage !== 'lobbyPage') { clearInterval(state._lobbyPoller); return; }
+    const { data: players } = await sb.from('draft_players').select('*').eq('session_id', state.sessionId).order('order_idx');
+    state.players = players || [];
+    renderLobbyPlayers();
+    // Check if session status changed
+    const { data: sess } = await sb.from('draft_sessions').select('status').eq('id', state.sessionId).single();
+    if (sess && sess.status !== 'lobby') {
+      clearInterval(state._lobbyPoller);
       if (sess.status === 'closed') { handleSessionClosed(); return; }
       await loadState();
       renderByStatus(sess.status);
+    }
+  }, 3000);
+}
+
+async function loadLobby() {
+  const { data: players } = await sb.from('draft_players').select('*').eq('session_id', state.sessionId).order('order_idx');
+  state.players = players || [];
+  renderLobbyPlayers();
+}
+
+function renderLobbyPlayers() {
+  const el = document.getElementById('lobbyPlayerList');
+  document.getElementById('playerCountBadge').textContent = state.players.length + '人';
+  el.innerHTML = state.players.map((p, i) => `
+    <div class="status-row">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="avatar" style="width:28px;height:28px;font-size:11px">${i+1}</div>
+        <span style="font-size:14px">${p.name}</span>
+        ${p.name === state.session?.host_name || i===0 ? '<span style="font-size:10px;color:var(--gold)">HOST</span>' : ''}
+      </div>
+      <span class="si-done" style="width:8px;height:8px;border-radius:50%;background:#27ae60;display:inline-block"></span>
+    </div>`).join('');
+}
+
+function copyCode() {
+  navigator.clipboard?.writeText(state.sessionId).then(() => toast('コードをコピーしました！'));
+}
+
+async function startDraft() {
+  if (!state.isHost) return;
+  if (state.players.length < 2) { toast('2人以上が必要です'); return; }
+  const { data: players } = await sb.from('draft_players').select('*').eq('session_id', state.sessionId).order('order_idx');
+  // reassign order
+  for (let i = 0; i < players.length; i++) {
+    await sb.from('draft_players').update({ order_idx: i }).eq('id', players[i].id);
+  }
+  await sb.from('draft_sessions').update({ status: 'inputting', current_round: 1, current_player_idx: 0 }).eq('id', state.sessionId);
+}
+
+// ── SUBSCRIPTIONS ────────────────────────────────────────────
+function subscribeAll() {
+  sb.channel('session-' + state.sessionId)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_sessions', filter: 'id=eq.' + state.sessionId },
+      payload => { handleSessionChange(payload.new); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_players', filter: 'session_id=eq.' + state.sessionId },
+      async payload => {
+        const { data: players } = await sb.from('draft_players').select('*').eq('session_id', state.sessionId).order('order_idx');
+        state.players = players || [];
+        renderLobbyPlayers();
+      })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'draft_picks', filter: 'session_id=eq.' + state.sessionId },
+      payload => { loadPicksAndRender(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'conflict_winners', filter: 'session_id=eq.' + state.sessionId },
+      async payload => {
+        const currentPage = document.querySelector('.page.active')?.id;
+        if (currentPage !== 'conflictPage') return;
+        await loadConflictWinners();
+        await loadPicksAndRender();
+        renderConflictPage();
+      })
+    .subscribe();
+}
+
+async function handleSessionChange(newSession) {
+  if (newSession.status === 'closed') {
+    handleSessionClosed();
+    return;
+  }
+  state.session = newSession;
+  await loadState();
+  renderByStatus(newSession.status);
+}
+
+async function loadState() {
+  const { data: sess } = await sb.from('draft_sessions').select('*').eq('id', state.sessionId).single();
+  const { data: players } = await sb.from('draft_players').select('*').eq('session_id', state.sessionId).order('order_idx');
+  const { data: picks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
+  state.session = sess;
+  state.players = players || [];
+  state.picks = picks || [];
+  if (sess?.status === 'conflict') await loadConflictWinners();
+}
+
+function startInputPoller() {
+  if (state._inputPoller) clearInterval(state._inputPoller);
+  state._inputPoller = setInterval(async () => {
+    const currentPage = document.querySelector('.page.active')?.id;
+    if (currentPage !== 'inputPage') { clearInterval(state._inputPoller); return; }
+
+    // picks と session を両方取得して最新状態に同期
+    const [picksRes, sessRes] = await Promise.all([
+      sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at'),
+      sb.from('draft_sessions').select('*').eq('id', state.sessionId).single()
+    ]);
+    if (picksRes.data) state.picks = picksRes.data;
+    if (sessRes.data) state.session = sessRes.data;
+
+    // セッションが既に次フェーズへ進んでいたら遷移
+    const newStatus = sessRes.data?.status;
+    if (newStatus && newStatus !== 'inputting') {
+      clearInterval(state._inputPoller);
+      // state already updated above
+      renderByStatus(newStatus);
       return;
     }
+
+    // 全員完了チェック → ホストが revealing に更新
+    const round = state.session?.current_round;
+    if (round) {
+      const allDone = state.players.every(p =>
+        state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)
+      );
+      if (allDone && state.session?.status === 'inputting') {
+        if (state.isHost) {
+          clearInterval(state._inputPoller);
+          await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
+          state.session.status = 'revealing';
+          renderByStatus('revealing');
+        }
+      }
+    }
+
+    renderInputPage();
+  }, 2000);
+}
+
+async function loadPicksAndRender() {
+  const { data: picks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
+  state.picks = picks || [];
+  const currentPage = document.querySelector('.page.active')?.id;
+  if (currentPage === 'inputPage') {
+    renderInputPage();
+    // 全員完了チェック（ゲストも含む全員で判定）
+    const round = state.session?.current_round;
+    if (round && state.session?.status === 'inputting') {
+      const allDone = state.players.every(p =>
+        state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)
+      );
+      if (allDone) {
+        if (state.isHost) {
+          await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
+        } else {
+          // ゲストはセッションのステータス更新をポーリングで待つ代わりにDBを直接確認して遷移
+          const { data: sess } = await sb.from('draft_sessions').select('status').eq('id', state.sessionId).single();
+          if (sess?.status === 'revealing') {
+            await loadState();
+            showPage('revealPage');
+            renderRevealPage();
+          }
+        }
+      }
+    }
+  }
+  if (currentPage === 'standingsPage') renderStandings();
+}
+
+function renderByStatus(status) {
+  if (state.isHost) document.getElementById('newDraftBtn').style.display =
+    (status === 'homePage' || status === 'done') ? 'none' : 'block';
+  if (status === 'lobby') { enterLobby(); return; }
+  if (status === 'inputting') { showPage('inputPage'); renderInputPage(); startInputPoller(); return; }
+  if (status === 'revealing') {
+    showPage('revealPage');
+    state._revealStarted = false;
+    renderRevealPage();
+    if (!state.isHost) startRevealPoller();
+    return;
+  }
+  if (status === 'conflict') { showPage('conflictPage'); renderConflictPage(); startConflictPoller(); return; }
+  if (status === 'done') { showPage('finalPage'); renderFinal(); return; }
+  if (status === 'closed') { handleSessionClosed(); return; }
+}
+
+// ── INPUT PAGE ───────────────────────────────────────────────
+function renderInputPage() {
+  if (!state.session || !state.players.length) return;
+  const round = state.session.current_round;
+  const iDoneThisRound = state.picks.find(p => p.player_name === state.myName && p.round === round && !p.is_alt);
+
+  document.getElementById('roundLabel').textContent = `第${round}巡`;
+
+  // dots: one per player, green=done, gold+pulse=inputting
+  const dots = document.getElementById('inputDots');
+  dots.innerHTML = state.players.map(p => {
+    const done = state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt);
+    return `<div class="dot ${done ? 'done' : 'active'}" title="${p.name}"></div>`;
+  }).join('');
+
+  // show my input card OR done-waiting card
+  document.getElementById('myTurnCard').style.display = !iDoneThisRound ? 'block' : 'none';
+  document.getElementById('waitCard').style.display = 'none';
+  document.getElementById('doneWaitCard').style.display = iDoneThisRound ? 'block' : 'none';
+
+  if (!iDoneThisRound) {
+    document.getElementById('myTurnName').textContent = state.myName;
+    document.getElementById('myAvatar').textContent = state.myName.slice(0,1);
+  }
+
+  // round status list
+  const doneCount = state.players.filter(p => state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)).length;
+  const list = document.getElementById('roundStatusList');
+  list.innerHTML = state.players.map(p => {
+    const done = state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt);
+    return `<div class="status-row">
+      <div style="display:flex;align-items:center">
+        <div class="status-indicator ${done ? 'si-done' : 'si-active'}"></div>
+        <span style="font-size:13px">${p.name}</span>
+      </div>
+      <span style="font-size:12px;color:var(--muted)">${done ? '✓ 入力済み' : '入力中...'}</span>
+    </div>`;
+  }).join('') + `<div style="font-size:12px;color:var(--muted);text-align:right;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">${doneCount} / ${state.players.length} 人完了</div>`;
+
+  // check if all done → host triggers reveal
+  const allDone = state.players.every(p => state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt));
+  if (allDone && state.session.status === 'inputting') {
+    if (state.isHost) {
+      sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
+    }
+  }
+}
+
+// ── GENDER / INPUT ───────────────────────────────────────────
+function selectGender(g) {
+  state.selectedGender = g;
+  document.getElementById('btnMale').className = 'gender-btn' + (g === '牡' ? ' active-male' : '');
+  document.getElementById('btnFemale').className = 'gender-btn' + (g === '牝' ? ' active-female' : '');
+}
+
+function onMotherInput() {
+  clearTimeout(state.verifyTimeout);
+  const val = document.getElementById('motherInput').value.trim();
+  if (!val) { document.getElementById('verifyStatus').textContent = ''; return; }
+  document.getElementById('verifyStatus').innerHTML = '<span style="color:var(--muted)">⏳ 確認中...</span>';
+  state.verifyTimeout = setTimeout(() => verifyMother(val), 900);
+}
+
+async function verifyMother(name) {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514', max_tokens: 80,
+        messages: [{ role: 'user', content: `POGで指名される競走馬の母馬として「${name}」は実在しますか？「はい」か「いいえ」と理由を15文字以内で。` }]
+      })
+    });
+    const d = await res.json();
+    const text = d.content?.[0]?.text || '';
+    const ok = text.includes('はい') || text.includes('実在');
+    document.getElementById('verifyStatus').innerHTML = ok
+      ? '<span style="color:var(--green)">✓ 確認済み</span>'
+      : `<span style="color:#e67e22">⚠ 要確認（${text.slice(0,25)}）</span>`;
+  } catch {
+    document.getElementById('verifyStatus').innerHTML = '<span style="color:var(--muted)">— スキップ</span>';
+  }
+}
+
+async function submitPick() {
+  const mother = document.getElementById('motherInput').value.trim();
+  const errEl = document.getElementById('pickError');
+  if (!mother) { errEl.textContent = '母名を入力してください'; return; }
+  if (!state.selectedGender) { errEl.textContent = '性別を選択してください'; return; }
+  errEl.textContent = '';
+  const round = state.session.current_round;
+
+  const { error } = await sb.from('draft_picks').insert({
+    session_id: state.sessionId, player_name: state.myName,
+    round, mother, gender: state.selectedGender, is_alt: false
+  });
+  if (error) { errEl.textContent = '登録エラー: ' + error.message; return; }
+
+  document.getElementById('motherInput').value = '';
+  document.getElementById('verifyStatus').textContent = '';
+  state.selectedGender = '';
+  selectGender('');
+  toast('指名を登録しました！');
+  await loadState();
+  renderInputPage();
+}
+
+// ── REVEAL PAGE ──────────────────────────────────────────────
+function startConflictPoller() {
+  if (state._conflictPoller) clearInterval(state._conflictPoller);
+  state._conflictPoller = setInterval(async () => {
+    const currentPage = document.querySelector('.page.active')?.id;
+    if (currentPage !== 'conflictPage') { clearInterval(state._conflictPoller); return; }
+
+    const [winnersRes, picksRes, sessRes] = await Promise.all([
+      sb.from('conflict_winners').select('*').eq('session_id', state.sessionId).eq('round', state.session?.current_round),
+      sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at'),
+      sb.from('draft_sessions').select('*').eq('id', state.sessionId).single()
+    ]);
+
+    // winners を更新
+    state.conflictWinners = {};
+    (winnersRes.data || []).forEach(w => { state.conflictWinners[w.mother.toLowerCase()] = w.winner_name; });
+
+    if (picksRes.data) state.picks = picksRes.data;
+    if (sessRes.data) state.session = sessRes.data;
+
+    if (sessRes.data && sessRes.data.status !== 'conflict') {
+      clearInterval(state._conflictPoller);
+      if (sessRes.data.status === 'closed') { handleSessionClosed(); return; }
+      await loadState();
+      renderByStatus(sessRes.data.status);
+      return;
+    }
+
     renderConflictPage();
-  }, 2500);
+  }, 1500);
 }
 
 function startRevealPoller() {
