@@ -180,6 +180,9 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
           🔄 前回のセッションに戻る
         </button>
         <div id="resumeInfo" style="font-size:11px;color:var(--muted);margin-top:4px;text-align:center"></div>
+        <button class="btn btn-outline btn-sm" onclick="clearSession()" style="margin-top:6px;width:100%;font-size:12px;color:var(--muted)">
+          ✕ セッション履歴を消去
+        </button>
       </div>
     </div>
   </div>
@@ -909,7 +912,32 @@ async function finishReveal() {
 function doReveal(idx) {
   if (idx >= state.players.length) {
     document.getElementById('revealOverlay').style.display = 'none';
-    if (state.isHost) checkConflicts();
+    if (state.isHost) {
+      // ホスト：次の巡へ進むボタンを表示
+      showPage('revealPage');
+      document.getElementById('revealQueue').style.display = 'none';
+      document.getElementById('revealModeSelect').style.display = 'none';
+      document.getElementById('revealGuestMsg').style.display = 'none';
+      document.getElementById('allAtOnceTable').style.display = 'block';
+      const round = state.session.current_round;
+      document.getElementById('allAtOnceTable').innerHTML =
+        `<div style="font-size:15px;font-weight:700;margin-bottom:16px">第${round}巡 公開完了！</div>` +
+        state.players.map(p => {
+          const pick = state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt);
+          const tag = pick ? (pick.gender === '牡' ? '<span class="tag tag-male">牡</span>' : '<span class="tag tag-female">牝</span>') : '';
+          return `<div class="status-row">
+            <span style="font-size:13px;font-weight:500">${p.name}</span>
+            <span style="font-size:13px">${pick ? pick.mother + ' ' : '—'}${tag}</span>
+          </div>`;
+        }).join('') +
+        `<button class="btn btn-primary" style="margin-top:16px" onclick="finishReveal()">
+          ${round >= state.session.total_picks ? '🏆 ドラフト終了！' : `第${round+1}巡へ進む →`}
+        </button>`;
+    } else {
+      // ゲスト：次の巡へ自動遷移（ホストが進める）
+      document.getElementById('revealGuestMsg').style.display = 'block';
+      document.getElementById('revealGuestMsg').textContent = 'ホストが次の巡へ進めます...';
+    }
     return;
   }
   const player = state.players[idx];
@@ -1152,6 +1180,12 @@ function exportCSV() {
 }
 
 // ── RESUME ───────────────────────────────────────────────────
+function clearSession() {
+  localStorage.removeItem('pog_session');
+  document.getElementById('resumeBtn').style.display = 'none';
+  toast('セッション履歴を消去しました');
+}
+
 function resumeLastSession() {
   const saved = localStorage.getItem('pog_session');
   if (!saved) return;
@@ -1209,16 +1243,25 @@ async function restoreSession(sessionId, name, isHost) {
     await restoreSession(sessionId, name, isHost);
     return;
   }
-  // 2. URLになければlocalStorageから復元
+  // 2. URLになければlocalStorageから復元（アクティブなセッションのみ）
   const saved = localStorage.getItem('pog_session');
   if (saved) {
     try {
       const { sessionId, name, isHost } = JSON.parse(saved);
       if (sessionId && name) {
-        await restoreSession(sessionId, name, isHost);
-        return;
+        // まずセッション状態を確認してからdoneなら復帰しない
+        const { data: sess } = await sb.from('draft_sessions').select('status').eq('id', sessionId).single();
+        if (sess && sess.status !== 'done') {
+          await restoreSession(sessionId, name, isHost);
+          return;
+        } else {
+          // 終了済みor存在しないセッションはlocalStorageを消してホームへ
+          localStorage.removeItem('pog_session');
+        }
       }
-    } catch(e) {}
+    } catch(e) {
+      localStorage.removeItem('pog_session');
+    }
   }
   // 3. 何もなければホーム画面
   showPage('homePage');
