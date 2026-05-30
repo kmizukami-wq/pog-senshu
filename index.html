@@ -1228,44 +1228,23 @@ function doReveal(idx) {
     document.getElementById('countdownDisplay').style.display = 'none';
     document.getElementById('revealContent').style.display = 'block';
 
-    // 名前 + 馬名・性別を即表示（nameTime=0想定、または名前表示フェーズをスキップ）
+    // 名前＋馬名を即座に同時表示
     document.getElementById('revealRoundLabel').textContent = '第 ' + state.session.current_round + ' 巡';
     document.getElementById('revealOwnerName').textContent = player.name;
-
-    if (nameTime > 0) {
-      // 名前だけ先に表示
-      document.getElementById('revealMother').textContent = '　';
-      document.getElementById('revealGenderWrap').style.opacity = '0';
-      document.getElementById('revealTimerText').textContent = nameTime + '秒後に馬名公開';
-      setTimerBar(nameTime);
-      let secs = nameTime;
-      state.revealTimer = setInterval(() => {
-        secs--;
-        document.getElementById('revealTimerText').textContent = secs > 0 ? secs + '秒後に馬名公開' : '公開！';
-        if (secs <= 0) {
-          clearInterval(state.revealTimer);
-          showHorse();
-        }
-      }, 1000);
-    } else {
-      showHorse();
-    }
-  };
-
-  const showHorse = () => {
     document.getElementById('revealMother').textContent = pick.mother;
     document.getElementById('revealGenderSym').textContent = pick.gender === '牡' ? '♂' : '♀';
     document.getElementById('revealGenderSym').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
     document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '牡馬' : '牝馬';
     document.getElementById('revealGenderText').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
     document.getElementById('revealGenderWrap').style.opacity = '1';
+
     setTimerBar(horseTime);
-    let secs2 = horseTime;
-    document.getElementById('revealTimerText').textContent = secs2 + '秒後に次へ';
+    let secs = horseTime;
+    document.getElementById('revealTimerText').textContent = secs + '秒後に次へ';
     state.revealTimer = setInterval(() => {
-      secs2--;
-      document.getElementById('revealTimerText').textContent = secs2 > 0 ? secs2 + '秒後に次へ' : '次へ...';
-      if (secs2 <= 0) { clearInterval(state.revealTimer); doReveal(idx + 1); }
+      secs--;
+      document.getElementById('revealTimerText').textContent = secs > 0 ? secs + '秒後に次へ' : '次へ...';
+      if (secs <= 0) { clearInterval(state.revealTimer); doReveal(idx + 1); }
     }, 1000);
   };
 
