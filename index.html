@@ -1125,7 +1125,7 @@ function renderConflictPage() {
   roundPicks.forEach(p => { const k = p.mother.toLowerCase(); if (!byMother[k]) byMother[k] = []; byMother[k].push(p); });
   const conflicts = Object.values(byMother).filter(g => g.length > 1);
 
-  // ── 全員に被り状況を表示 ──
+  // ── 全員に被り状況を表示（上部overview） ──
   const overviewEl = document.getElementById('conflictOverview');
   overviewEl.innerHTML = conflicts.map(group => {
     const names = group.map(p => p.player_name).join('、');
@@ -1146,7 +1146,7 @@ function renderConflictPage() {
     </div>`;
   }).join('');
 
-  // ── 自分が外れ入力が必要かチェック ──
+  // ── 自分の状態を判定 ──
   const contentEl = document.getElementById('conflictContent');
   const myConflicts = conflicts.filter(g => g.find(p => p.player_name === state.myName));
 
@@ -1160,18 +1160,17 @@ function renderConflictPage() {
     return;
   }
 
-  // 自分が被っていて、勝者が決まっているかチェック
   const myLosses = myConflicts.filter(g => {
     const winner = state.conflictWinners?.[g[0].mother.toLowerCase()];
-    return winner && winner !== state.myName; // 自分が負けた被り
+    return winner && winner !== state.myName;
   });
   const myWins = myConflicts.filter(g => {
     const winner = state.conflictWinners?.[g[0].mother.toLowerCase()];
-    return winner && winner === state.myName; // 自分が勝った
+    return winner && winner === state.myName;
   });
   const myPending = myConflicts.filter(g => !state.conflictWinners?.[g[0].mother.toLowerCase()]);
 
-  // 勝者未決定あり
+  // 勝者未決定あり → 待機
   if (myPending.length > 0) {
     contentEl.innerHTML = `<div class="card" style="text-align:center;padding:20px">
       <div style="font-size:24px;margin-bottom:8px">⏳</div>
@@ -1180,33 +1179,36 @@ function renderConflictPage() {
     return;
   }
 
-  // 自分の負け分の外れ指名入力
-  if (myLosses.length > 0) {
-    const notYetAlt = myLosses.filter(g => {
-      const mother = g[0].mother;
-      return !state.picks.find(pk => pk.player_name === state.myName && pk.round === round && pk.is_alt && pk.conflict_mother === mother);
-    });
-    if (notYetAlt.length > 0) {
-      const g = notYetAlt[0];
-      contentEl.innerHTML = `<div class="card">
-        <div style="font-size:14px;font-weight:600;margin-bottom:4px">「${g[0].mother}」は${state.conflictWinners[g[0].mother.toLowerCase()]}が獲得しました</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:14px">代わりの指名馬の母名を入力してください</div>
-        <div class="field"><label>外れ指名の母名</label>
-          <input type="text" id="altMotherInput" placeholder="別の母馬名" oninput="applyZenkaku(this)" inputmode="text">
+  // 外れ指名入力が必要なケース
+  const notYetAlt = myLosses.filter(g => {
+    return !state.picks.find(pk =>
+      pk.player_name === state.myName && pk.round === round && pk.is_alt
+    );
+  });
+
+  if (notYetAlt.length > 0) {
+    // すでに入力フォームが表示中なら再描画しない（入力内容が消えるのを防ぐ）
+    if (contentEl.querySelector('#altMotherInput')) return;
+
+    const g = notYetAlt[0];
+    contentEl.innerHTML = `<div class="card">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">「${g[0].mother}」は${state.conflictWinners[g[0].mother.toLowerCase()]}が獲得しました</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">代わりの指名馬の母名を入力してください</div>
+      <div class="field"><label>外れ指名の母名</label>
+        <input type="text" id="altMotherInput" placeholder="別の母馬名" oninput="applyZenkaku(this)" inputmode="text">
+      </div>
+      <div class="field"><label>性別</label>
+        <div class="gender-toggle">
+          <button class="gender-btn" id="altBtnMale" onclick="setAltGender('牡')">♂ 牡</button>
+          <button class="gender-btn" id="altBtnFemale" onclick="setAltGender('牝')">♀ 牝</button>
         </div>
-        <div class="field"><label>性別</label>
-          <div class="gender-toggle">
-            <button class="gender-btn" id="altBtnMale" onclick="setAltGender('牡')">♂ 牡</button>
-            <button class="gender-btn" id="altBtnFemale" onclick="setAltGender('牝')">♀ 牝</button>
-          </div>
-        </div>
-        <input type="hidden" id="altConflictMother" value="${g[0].mother}">
-        <button class="btn btn-primary" onclick="submitAlt()">外れ指名を確定</button>
-        <div id="altError" class="error-text"></div>
-      </div>`;
-      state.conflictGenders[state.myName] = '';
-      return;
-    }
+      </div>
+      <input type="hidden" id="altConflictMother" value="${g[0].mother}">
+      <button class="btn btn-primary" onclick="submitAlt()">外れ指名を確定</button>
+      <div id="altError" class="error-text"></div>
+    </div>`;
+    state.conflictGenders[state.myName] = '';
+    return;
   }
 
   // 全部解決済み
