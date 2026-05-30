@@ -870,7 +870,7 @@ function startStatusWatcher() {
   };
 
   state._statusWatcher = setInterval(async () => {
-    if (!state.sessionId || state.isHost) return;
+    if (!state.sessionId) return;
     try {
       const { data: sess } = await sb.from('draft_sessions')
         .select('*')
@@ -1185,7 +1185,7 @@ async function checkConflicts() {
   // 母名+性別で通常被り検出
   const byMotherGender = {};
   roundPicks.forEach(p => {
-    const k = p.mother.toLowerCase() + '_' + p.gender;
+    const k = p.mother + '|' + p.gender;
     if (!byMotherGender[k]) byMotherGender[k] = [];
     byMotherGender[k].push(p);
   });
@@ -1194,7 +1194,7 @@ async function checkConflicts() {
   // 母名のみで同一母名・異性別を検出
   const byMotherOnly = {};
   roundPicks.forEach(p => {
-    const k = p.mother.toLowerCase();
+    const k = p.mother; // 全角文字なので toLowerCase 不要
     if (!byMotherOnly[k]) byMotherOnly[k] = [];
     byMotherOnly[k].push(p);
   });
