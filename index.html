@@ -878,6 +878,19 @@ async function submitPick() {
   toast('指名を登録しました！');
   await loadState();
   renderInputPage();
+
+  // 全員完了チェック（ホスト・ゲスト両方）
+  const allDone = state.players.every(p =>
+    state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)
+  );
+  if (allDone && state.session?.status === 'inputting') {
+    if (state.isHost) {
+      await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
+      state.session.status = 'revealing';
+      renderByStatus('revealing');
+    }
+    // ゲストは statusWatcher が検知して遷移
+  }
 }
 
 // ── REVEAL PAGE ──────────────────────────────────────────────
