@@ -678,13 +678,11 @@ function startInputPoller() {
       const allDone = state.players.every(p =>
         state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)
       );
-      if (allDone && state.session?.status === 'inputting') {
-        if (state.isHost) {
-          clearInterval(state._inputPoller);
-          await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
-          state.session.status = 'revealing';
-          renderByStatus('revealing');
-        }
+      if (allDone && state.session?.status === 'inputting' && state.isHost) {
+        clearInterval(state._inputPoller);
+        await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
+        state.session.status = 'revealing';
+        renderByStatus('revealing');
       }
     }
 
@@ -696,29 +694,7 @@ async function loadPicksAndRender() {
   const { data: picks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
   state.picks = picks || [];
   const currentPage = document.querySelector('.page.active')?.id;
-  if (currentPage === 'inputPage') {
-    renderInputPage();
-    // 全員完了チェック（ゲストも含む全員で判定）
-    const round = state.session?.current_round;
-    if (round && state.session?.status === 'inputting') {
-      const allDone = state.players.every(p =>
-        state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)
-      );
-      if (allDone) {
-        if (state.isHost) {
-          await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
-        } else {
-          // ゲストはセッションのステータス更新をポーリングで待つ代わりにDBを直接確認して遷移
-          const { data: sess } = await sb.from('draft_sessions').select('status').eq('id', state.sessionId).single();
-          if (sess?.status === 'revealing') {
-            await loadState();
-            showPage('revealPage');
-            renderRevealPage();
-          }
-        }
-      }
-    }
-  }
+  if (currentPage === 'inputPage') renderInputPage();
   if (currentPage === 'standingsPage') renderStandings();
 }
 
@@ -875,18 +851,6 @@ async function submitPick() {
   await loadState();
   renderInputPage();
 
-  // 全員完了チェック（ホスト・ゲスト両方）
-  const allDone = state.players.every(p =>
-    state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)
-  );
-  if (allDone && state.session?.status === 'inputting') {
-    if (state.isHost) {
-      await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
-      state.session.status = 'revealing';
-      renderByStatus('revealing');
-    }
-    // ゲストは statusWatcher が検知して遷移
-  }
 }
 
 // ── REVEAL PAGE ──────────────────────────────────────────────
@@ -1416,7 +1380,9 @@ function renderConflictPage() {
     }
   }
 
-  el.innerHTML = lines.join('');
+  // デバッグ情報を先頭に追加
+  const debugDiv = '<div style="background:#333;color:#0f0;font-size:10px;padding:8px;border-radius:6px;margin-bottom:12px;font-family:monospace">conflicts:' + conflicts.length + ' genderMismatches:' + genderMismatches.length + ' picks:' + roundPicks.length + '<br>' + roundPicks.map(p => p.player_name+':'+p.mother+':'+p.gender).join(', ') + '</div>';
+  el.innerHTML = debugDiv + lines.join('');
 
   // data属性でイベント設定
   el.querySelectorAll('.approve-btn').forEach(btn => {
