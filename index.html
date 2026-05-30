@@ -592,13 +592,38 @@ function startInputPoller() {
   state._inputPoller = setInterval(async () => {
     const currentPage = document.querySelector('.page.active')?.id;
     if (currentPage !== 'inputPage') { clearInterval(state._inputPoller); return; }
-    const { data: sess } = await sb.from('draft_sessions').select('*').eq('id', state.sessionId).single();
-    if (sess && sess.status !== 'inputting') {
+
+    // picks と session を両方取得して最新状態に同期
+    const [picksRes, sessRes] = await Promise.all([
+      sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at'),
+      sb.from('draft_sessions').select('*').eq('id', state.sessionId).single()
+    ]);
+    if (picksRes.data) state.picks = picksRes.data;
+    if (sessRes.data) state.session = sessRes.data;
+
+    // セッションが既に次フェーズへ進んでいたら遷移
+    if (sessRes.data && sessRes.data.status !== 'inputting') {
       clearInterval(state._inputPoller);
-      state.session = sess;
       await loadState();
-      renderByStatus(sess.status);
+      renderByStatus(sessRes.data.status);
+      return;
     }
+
+    // 全員完了チェック → ホストが revealing に更新
+    const round = state.session?.current_round;
+    if (round) {
+      const allDone = state.players.every(p =>
+        state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)
+      );
+      if (allDone && state.session?.status === 'inputting') {
+        if (state.isHost) {
+          clearInterval(state._inputPoller);
+          await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
+        }
+      }
+    }
+
+    renderInputPage();
   }, 2000);
 }
 
