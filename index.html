@@ -1186,23 +1186,22 @@ async function checkConflicts() {
   const round = state.session.current_round;
   const roundPicks = state.picks.filter(p => p.round === round && !p.is_alt);
 
-  // 母名+性別で通常被り検出
-  const byMotherGender = {};
+  // 母名+性別 → 通常被り（同じ母名・同じ性別が複数）
+  const byMG = {};
   roundPicks.forEach(p => {
     const k = p.mother + '|' + p.gender;
-    if (!byMotherGender[k]) byMotherGender[k] = [];
-    byMotherGender[k].push(p);
+    if (!byMG[k]) byMG[k] = [];
+    byMG[k].push(p);
   });
-  const conflicts = Object.values(byMotherGender).filter(g => g.length > 1);
+  const conflicts = Object.values(byMG).filter(g => g.length > 1);
 
-  // 母名のみで同一母名・異性別を検出
-  const byMotherOnly = {};
+  // 母名のみ → 異性別不一致（同じ母名に複数の性別が混在）
+  const byM = {};
   roundPicks.forEach(p => {
-    const k = p.mother; // 全角文字なので toLowerCase 不要
-    if (!byMotherOnly[k]) byMotherOnly[k] = [];
-    byMotherOnly[k].push(p);
+    if (!byM[p.mother]) byM[p.mother] = [];
+    byM[p.mother].push(p);
   });
-  const genderMismatches = Object.values(byMotherOnly).filter(g =>
+  const genderMismatches = Object.values(byM).filter(g =>
     g.length > 1 && new Set(g.map(p => p.gender)).size > 1
   );
 
@@ -1315,6 +1314,15 @@ function renderConflictPage() {
     lines.push('<div class="card" style="margin-bottom:12px;border-left:3px solid #e67e22">' + inner + '</div>');
   });
 
+  // 性別不一致が全て解決済みか
+  const genderAllResolved = genderMismatches.length === 0 || genderMismatches.every(g => {
+    if (reinputReqs.some(r => r.mother === g[0].mother && r.action === 'ok')) return true;
+    const rp2 = reinputReqs.filter(r => r.mother === g[0].mother && r.action === 'reinput').map(r => r.player);
+    if (rp2.length === 0) return false;
+    return rp2.every(player => !roundPicks.some(p => p.player_name === player && p.mother === g[0].mother));
+  });
+
+
   conflicts.forEach(group => {
     const mother = group[0].mother;
     const winner = state.conflictWinners?.[mother];
@@ -1322,7 +1330,13 @@ function renderConflictPage() {
     inner += '<div style="font-size:11px;color:var(--gold);font-weight:600;margin-bottom:4px">⚠️ 指名被り</div>';
     inner += '<div style="font-size:14px;font-weight:700;margin-bottom:8px">母名：' + mother + '（' + group[0].gender + '）</div>';
 
-    if (!winner) {
+    // この被りグループの母名が性別不一致グループにも含まれているか
+    const isLinkedToMismatch = genderMismatches.some(gm => gm[0].mother === group[0].mother);
+    const showConflict = !isLinkedToMismatch || genderAllResolved;
+
+    if (!showConflict) {
+      inner += '<div style="font-size:13px;color:var(--muted)">⏳ 性別不一致を解決後に対応します</div>';
+    } else if (!winner) {
       if (state.isHost) {
         inner += '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">どちらが獲得しますか？</div>';
         inner += '<div style="display:flex;gap:8px">';
@@ -1333,7 +1347,7 @@ function renderConflictPage() {
       } else {
         inner += '<div style="font-size:13px;color:var(--muted)">⏳ ホストが勝者を選択中...</div>';
       }
-    } else {
+    } else if (winner) {
       inner += '<div style="font-size:13px;color:var(--green);font-weight:600;margin-bottom:8px">✓ ' + winner + ' が獲得</div>';
       group.filter(p => p.player_name !== winner).forEach(p => {
         const alt = state.picks.find(pk => pk.player_name === p.player_name && pk.round === round && pk.is_alt);
@@ -1384,9 +1398,7 @@ function renderConflictPage() {
     }
   }
 
-  // デバッグ情報を先頭に追加
-  const debugDiv = '<div style="background:#333;color:#0f0;font-size:10px;padding:8px;border-radius:6px;margin-bottom:12px;font-family:monospace">conflicts:' + conflicts.length + ' genderMismatches:' + genderMismatches.length + ' picks:' + roundPicks.length + '<br>' + roundPicks.map(p => p.player_name+':'+p.mother+':'+p.gender).join(', ') + '</div>';
-  el.innerHTML = debugDiv + lines.join('');
+  el.innerHTML = lines.join('');
 
   // data属性でイベント設定
   el.querySelectorAll('.approve-btn').forEach(btn => {
