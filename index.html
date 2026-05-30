@@ -885,32 +885,46 @@ async function submitPick() {
 // ゲスト用：セッションのステータス変化を常時監視して画面遷移
 function startStatusWatcher() {
   if (state._statusWatcher) clearInterval(state._statusWatcher);
+
+  // ページとDBステータスのマッピング
+  const pageForStatus = {
+    'lobby': 'lobbyPage',
+    'inputting': 'inputPage',
+    'revealing': 'revealPage',
+    'revealing_active': 'revealPage',
+    'conflict': 'conflictPage',
+    'done': 'finalPage',
+  };
+
   state._statusWatcher = setInterval(async () => {
     if (!state.sessionId || state.isHost) return;
     try {
       const { data: sess } = await sb.from('draft_sessions')
-        .select('status, current_round, current_player_idx')
+        .select('*')
         .eq('id', state.sessionId)
         .single();
       if (!sess) return;
       if (sess.status === 'closed') { handleSessionClosed(); return; }
 
       const currentPage = document.querySelector('.page.active')?.id;
-      const currentStatus = state.session?.status;
+      const expectedPage = pageForStatus[sess.status];
 
-      // ステータスが変わったら遷移
-      if (sess.status !== currentStatus) {
+      // 現在のページとDBのステータスが食い違っていたら遷移
+      if (expectedPage && currentPage !== expectedPage) {
+        state.session = sess;
         await loadState();
         renderByStatus(sess.status);
         return;
       }
 
-      // conflict ページにいるときは conflictPoller に任せる
+      // conflict ページにいるときは conflictPoller が担当
       // inputting でラウンドが変わったら再描画
       if (sess.status === 'inputting' && currentPage === 'inputPage') {
         if (sess.current_round !== state.session?.current_round) {
+          state.session = sess;
           await loadState();
           renderInputPage();
+          startInputPoller();
         }
       }
     } catch(e) {}
