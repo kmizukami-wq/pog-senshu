@@ -334,23 +334,34 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
 
 <div id="lobbyPage" class="page">
   <div style="padding-top:16px">
-    <div class="card" style="text-align:center">
+    <!-- ホスト用：コードシェア -->
+    <div id="lobbyCodeCard" class="card" style="text-align:center">
       <div class="card-title">参加コードをシェア</div>
       <div id="lobbyCode" style="font-size:48px;font-weight:900;letter-spacing:8px;color:var(--green);margin:12px 0"></div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px">全員がこのコードで参加してください</div>
       <button class="btn btn-outline btn-sm" onclick="copyCode()" style="display:inline-block;width:auto;padding:8px 20px">コードをコピー</button>
     </div>
+    <!-- ゲスト用：開始待ちメッセージ -->
+    <div id="lobbyGuestWaitCard" class="card" style="display:none;text-align:center;padding:24px">
+      <div style="font-size:32px;margin-bottom:12px">⏳</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:6px">ホストが開始するまでお待ちください</div>
+      <div style="font-size:12px;color:var(--muted)">ドラフト開始後、自動的に画面が切り替わります</div>
+    </div>
     <div class="card">
       <div class="card-title">参加者 <span id="playerCountBadge" style="color:var(--green)"></span></div>
       <div id="lobbyPlayerList"></div>
+    </div>
+    <!-- ゲスト用：コードシェア（下部） -->
+    <div id="lobbyGuestCodeCard" class="card" style="display:none;text-align:center">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">参加コード</div>
+      <div id="lobbyGuestCode" style="font-size:36px;font-weight:900;letter-spacing:8px;color:var(--green);margin-bottom:12px"></div>
+      <button class="btn btn-outline btn-sm" onclick="copyCode()" style="display:inline-block;width:auto;padding:8px 20px">コードをコピー</button>
     </div>
     <div id="lobbyHostActions" style="display:none">
       <button class="btn btn-primary" id="startDraftBtn" onclick="startDraft()">🏁 ドラフト開始！</button>
       <div style="font-size:12px;color:var(--muted);text-align:center;margin-top:8px">全員参加後にスタートしてください</div>
     </div>
-    <div id="lobbyGuestMsg" style="display:none;text-align:center;padding:12px;color:var(--muted);font-size:14px">
-      ホストがドラフトを開始するまでお待ちください...
-    </div>
+    <div id="lobbyGuestMsg" style="display:none"></div>
   </div>
 </div>
 
@@ -681,7 +692,13 @@ async function enterLobby() {
   showPage('lobbyPage');
   document.getElementById('lobbyCode').textContent = state.sessionId;
   document.getElementById('lobbyHostActions').style.display = state.isHost ? 'block' : 'none';
-  document.getElementById('lobbyGuestMsg').style.display = state.isHost ? 'none' : 'block';
+  document.getElementById('lobbyGuestMsg').style.display = 'none';
+  document.getElementById('lobbyCodeCard').style.display = state.isHost ? 'block' : 'none';
+  document.getElementById('lobbyGuestWaitCard').style.display = state.isHost ? 'none' : 'block';
+  document.getElementById('lobbyGuestCodeCard').style.display = state.isHost ? 'none' : 'block';
+  if (!state.isHost) {
+    document.getElementById('lobbyGuestCode').textContent = state.sessionId;
+  }
   if (state.isHost) document.getElementById('newDraftBtn').style.display = 'block';
   subscribeAll();
   await loadLobby();
