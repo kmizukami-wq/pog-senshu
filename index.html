@@ -966,7 +966,7 @@ function startConflictPoller() {
     ]);
 
     state.conflictWinners = {};
-    (winnersRes.data || []).forEach(w => { state.conflictWinners[w.mother.toLowerCase()] = w.winner_name; });
+    (winnersRes.data || []).forEach(w => { state.conflictWinners[w.mother] = w.winner_name; });
     if (picksRes.data) state.picks = picksRes.data;
     if (sessRes.data) state.session = sessRes.data;
 
@@ -1223,7 +1223,7 @@ async function checkConflicts() {
   const roundPicks = state.picks.filter(p => p.round === round && !p.is_alt);
   const byMother = {};
   roundPicks.forEach(p => {
-    const k = p.mother.toLowerCase();
+    const k = p.mother.toLowerCase() + '_' + p.gender;
     if (!byMother[k]) byMother[k] = [];
     byMother[k].push(p);
   });
@@ -1272,7 +1272,7 @@ function renderConflictPage() {
   const roundPicks = state.picks.filter(p => p.round === round && !p.is_alt);
   const byMother = {};
   roundPicks.forEach(p => {
-    const k = p.mother.toLowerCase();
+    const k = p.mother.toLowerCase() + '_' + p.gender;
     if (!byMother[k]) byMother[k] = [];
     byMother[k].push(p);
   });
@@ -1283,11 +1283,11 @@ function renderConflictPage() {
 
   // ── 各被りグループ ──
   conflicts.forEach(group => {
-    const motherKey = group[0].mother.toLowerCase();
-    const winner = state.conflictWinners?.[motherKey];
+    const motherKey = group[0].mother + '_' + group[0].gender;
+    const winner = state.conflictWinners?.[group[0].mother];
 
     html += `<div class="card" style="margin-bottom:12px">
-      <div style="font-size:14px;font-weight:700;margin-bottom:8px">母名：${group[0].mother}</div>`;
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px">母名：${group[0].mother}（${group[0].gender}）</div>`;
 
     // 勝者未決定 → ホストは選択ボタン、ゲストは待機
     if (!winner) {
@@ -1424,7 +1424,8 @@ async function setConflictWinner(mother, winnerName) {
   }, { onConflict: 'session_id,round,mother' });
   if (error) { toast('エラー: ' + error.message); return; }
   if (!state.conflictWinners) state.conflictWinners = {};
-  state.conflictWinners[mother.toLowerCase()] = winnerName;
+  // キーは motherKey（母名_性別）で管理
+  state.conflictWinners[mother] = winnerName;
   renderConflictPage();
 }
 
@@ -1433,7 +1434,7 @@ async function loadConflictWinners() {
   if (!round) return;
   const { data } = await sb.from('conflict_winners').select('*').eq('session_id', state.sessionId).eq('round', round);
   state.conflictWinners = {};
-  (data || []).forEach(w => { state.conflictWinners[w.mother.toLowerCase()] = w.winner_name; });
+  (data || []).forEach(w => { state.conflictWinners[w.mother] = w.winner_name; });
 }
 
 function checkConflictResolved(conflicts) {
