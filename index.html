@@ -322,6 +322,7 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
         <label>参加コード（4桁）</label>
         <input type="text" id="joinCode" placeholder="例：1234" maxlength="4"
           inputmode="numeric" pattern="[0-9]*"
+          oninput="this.value=this.value.replace(/[０-９]/g,s=>String.fromCharCode(s.charCodeAt(0)-0xFEE0)).replace(/[^0-9]/g,'')"
           style="letter-spacing:4px;font-size:24px;text-align:center">
       </div>
       <button class="btn btn-primary" onclick="joinSession()">参加する →</button>
