@@ -846,9 +846,11 @@ function startConflictPoller() {
       sb.from('draft_sessions').select('*').eq('id', state.sessionId).single()
     ]);
 
-    // winners を更新
+    // winners を更新（変化があったか記録）
+    const prevWinnersJSON = JSON.stringify(state.conflictWinners || {});
     state.conflictWinners = {};
     (winnersRes.data || []).forEach(w => { state.conflictWinners[w.mother.toLowerCase()] = w.winner_name; });
+    const winnersChanged = prevWinnersJSON !== JSON.stringify(state.conflictWinners);
 
     if (picksRes.data) state.picks = picksRes.data;
     if (sessRes.data) state.session = sessRes.data;
@@ -861,6 +863,12 @@ function startConflictPoller() {
       return;
     }
 
+    // 勝者が更新されたとき、入力フォーム表示中でなければ必ず再描画
+    const hasAltInput = !!document.getElementById('altMotherInput');
+    if (winnersChanged && !hasAltInput) {
+      // contentEl をリセットして強制再描画
+      document.getElementById('conflictContent').innerHTML = '';
+    }
     renderConflictPage();
   }, 1500);
 }
@@ -1122,33 +1130,37 @@ function renderConflictPage() {
   const round = state.session.current_round;
   const roundPicks = state.picks.filter(p => p.round === round && !p.is_alt);
   const byMother = {};
-  roundPicks.forEach(p => { const k = p.mother.toLowerCase(); if (!byMother[k]) byMother[k] = []; byMother[k].push(p); });
+  roundPicks.forEach(p => {
+    const k = p.mother.toLowerCase();
+    if (!byMother[k]) byMother[k] = [];
+    byMother[k].push(p);
+  });
   const conflicts = Object.values(byMother).filter(g => g.length > 1);
 
-  // ── 全員に被り状況を表示（上部overview） ──
+  // ── 上部：全員に被り状況を表示 ──
   const overviewEl = document.getElementById('conflictOverview');
   overviewEl.innerHTML = conflicts.map(group => {
+    const motherKey = group[0].mother.toLowerCase();
+    const winner = state.conflictWinners?.[motherKey];
     const names = group.map(p => p.player_name).join('、');
-    const winner = state.conflictWinners?.[group[0].mother.toLowerCase()];
     return `<div class="card" style="padding:12px;margin-bottom:8px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:6px">母名：${group[0].mother}</div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">母名：${group[0].mother}</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px">被り：${names}</div>
       ${winner
         ? `<div style="font-size:13px;color:var(--green);font-weight:600">✓ ${winner} が獲得</div>`
-        : (state.isHost
+        : state.isHost
           ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">どちらが獲得しますか？</div>
-             <div class="btn-row">${group.map(p => `
-               <button class="btn btn-outline btn-sm" onclick="setConflictWinner('${group[0].mother}','${p.player_name}')" style="flex:1;font-size:12px">${p.player_name}</button>`).join('')}
-             </div>`
+             <div class="btn-row">${group.map(p =>
+               `<button class="btn btn-outline btn-sm" onclick="setConflictWinner('${group[0].mother}','${p.player_name}')" style="flex:1;font-size:12px">${p.player_name}</button>`
+             ).join('')}</div>`
           : `<div style="font-size:12px;color:var(--muted)">⏳ ホストが勝者を選択中...</div>`
-        )
       }
     </div>`;
   }).join('');
 
-  // ── 自分の状態を判定 ──
+  // ── 下部：自分の操作エリア ──
   const contentEl = document.getElementById('conflictContent');
-  const myConflicts = conflicts.filter(g => g.find(p => p.player_name === state.myName));
+  const myConflicts = conflicts.filter(g => g.some(p => p.player_name === state.myName));
 
   // 自分が被っていない
   if (myConflicts.length === 0) {
@@ -1160,17 +1172,20 @@ function renderConflictPage() {
     return;
   }
 
+  // 自分が負けた被り（勝者が他人に決定済み）
   const myLosses = myConflicts.filter(g => {
-    const winner = state.conflictWinners?.[g[0].mother.toLowerCase()];
-    return winner && winner !== state.myName;
+    const w = state.conflictWinners?.[g[0].mother.toLowerCase()];
+    return w && w !== state.myName;
   });
+  // 自分が勝った被り
   const myWins = myConflicts.filter(g => {
-    const winner = state.conflictWinners?.[g[0].mother.toLowerCase()];
-    return winner && winner === state.myName;
+    const w = state.conflictWinners?.[g[0].mother.toLowerCase()];
+    return w && w === state.myName;
   });
+  // まだ勝者未決定
   const myPending = myConflicts.filter(g => !state.conflictWinners?.[g[0].mother.toLowerCase()]);
 
-  // 勝者未決定あり → 待機
+  // 未決定がある → 待機
   if (myPending.length > 0) {
     contentEl.innerHTML = `<div class="card" style="text-align:center;padding:20px">
       <div style="font-size:24px;margin-bottom:8px">⏳</div>
@@ -1179,21 +1194,22 @@ function renderConflictPage() {
     return;
   }
 
-  // 外れ指名入力が必要なケース
-  const notYetAlt = myLosses.filter(g => {
-    return !state.picks.find(pk =>
+  // 自分が負けた被りで、まだ外れ指名を出していないもの
+  const needsAlt = myLosses.filter(g =>
+    !state.picks.find(pk =>
       pk.player_name === state.myName && pk.round === round && pk.is_alt
-    );
-  });
+    )
+  );
 
-  if (notYetAlt.length > 0) {
-    // すでに入力フォームが表示中なら再描画しない（入力内容が消えるのを防ぐ）
+  if (needsAlt.length > 0) {
+    // すでに入力フォームが表示中（ユーザーが入力途中）なら再描画しない
     if (contentEl.querySelector('#altMotherInput')) return;
-
-    const g = notYetAlt[0];
+    const g = needsAlt[0];
+    const winner = state.conflictWinners[g[0].mother.toLowerCase()];
     contentEl.innerHTML = `<div class="card">
-      <div style="font-size:14px;font-weight:600;margin-bottom:4px">「${g[0].mother}」は${state.conflictWinners[g[0].mother.toLowerCase()]}が獲得しました</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">代わりの指名馬の母名を入力してください</div>
+      <div style="background:#fef3cd;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px">
+        「${g[0].mother}」は <strong>${winner}</strong> が獲得しました。<br>代わりの指名馬を入力してください。
+      </div>
       <div class="field"><label>外れ指名の母名</label>
         <input type="text" id="altMotherInput" placeholder="別の母馬名" oninput="applyZenkaku(this)" inputmode="text">
       </div>
@@ -1211,13 +1227,14 @@ function renderConflictPage() {
     return;
   }
 
-  // 全部解決済み
+  // 全て解決済み
   contentEl.innerHTML = `<div class="card" style="text-align:center;padding:20px">
     <div style="font-size:24px;margin-bottom:8px">✅</div>
     <div style="font-size:14px">${myWins.length > 0 ? '🎉 獲得しました！' : '外れ指名を登録しました。'}他の参加者を待っています...</div>
   </div>`;
   checkConflictResolved(conflicts);
 }
+
 
 async function setConflictWinner(mother, winnerName) {
   if (!state.isHost) return;
