@@ -1481,27 +1481,29 @@ function renderFinal() {
 // ── CSV EXPORT ───────────────────────────────────────────────
 function exportCSV() {
   const total = state.session?.total_picks || 10;
-  let csv = 'No.';
-  // 確定馬（外れあれば外れ馬）をメイン、元々の指名を備考
-  state.players.forEach(p => { csv += `,${p.name}_母名,${p.name}_性別,${p.name}_備考`; });
-  csv += '\n';
+
+  // 1行目: No. + 「N人目（名前）」を2列分（性別・母名）で結合ヘッダー
+  let row1 = 'No.';
+  let row2 = '-';
+  state.players.forEach((p, i) => {
+    row1 += `,${i+1}人目（${p.name}）,`;
+    row2 += `,性別,母名`;
+  });
+
+  let csv = row1 + '\n' + row2 + '\n';
+
   for (let r = 1; r <= total; r++) {
-    csv += r;
+    let row = r;
     state.players.forEach(p => {
       const pick = state.picks.find(pk => pk.player_name === p.name && pk.round === r && !pk.is_alt);
       const alt  = state.picks.find(pk => pk.player_name === p.name && pk.round === r && pk.is_alt);
-      if (alt) {
-        // 被りあり → 外れ馬がメイン、元指名を備考
-        csv += `,${alt.mother},${alt.gender},元指名:${pick ? pick.mother : ''}`;
-      } else if (pick) {
-        // 被りなし → 正指名がメイン
-        csv += `,${pick.mother},${pick.gender},`;
-      } else {
-        csv += `,,,`;
-      }
+      // 外れ指名があればそちらをメイン表示、備考は不要
+      const final = alt || pick;
+      row += final ? `,${final.gender},${final.mother}` : `,,`;
     });
-    csv += '\n';
+    csv += row + '\n';
   }
+
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
