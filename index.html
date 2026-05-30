@@ -1015,10 +1015,7 @@ function startStatusWatcher() {
       const expectedPage = pageForStatus[sess.status];
 
       // 外れ指名フォームが表示中はステータスウォッチャーも停止
-      const hasAltForm = !!document.querySelector('.submit-alt-btn');
-      const hasFixForm = !!document.querySelector('.fg-confirm');
-      if (hasAltForm || hasFixForm) return;
-      if (state._standingsOpen) return;
+      if (state._conflictFormOpen || state._standingsOpen) return;
 
       // 現在のページとDBのステータスが食い違っていたら遷移
       if (expectedPage && currentPage !== expectedPage) {
@@ -1073,9 +1070,7 @@ function startConflictPoller() {
     }
 
     // 入力フォーム・修正フォームが表示中は再描画しない
-    const hasAltForm = !!document.querySelector('.submit-alt-btn');
-    const hasFixForm = !!document.querySelector('.fg-confirm');
-    if (!hasAltForm && !hasFixForm) {
+    if (!state._conflictFormOpen) {
       renderConflictPage();
     }
   }, 1500);
@@ -1491,6 +1486,7 @@ function renderConflictPage() {
           inner += '<button class="gender-btn alt-female-btn" data-player="' + p.player_name + '">♀ 牝</button>';
           inner += '</div>';
           inner += '<button class="btn btn-primary submit-alt-btn" data-player="' + p.player_name + '" data-mother="' + mother + '" style="padding:10px">外れ指名を確定</button>';
+          state._conflictFormOpen = true;
           inner += '<div class="alt-error-msg" data-player="' + p.player_name + '" style="color:#c0392b;font-size:12px;margin-top:6px"></div>';
           inner += '</div>';
         } else {
@@ -1529,6 +1525,12 @@ function renderConflictPage() {
 
   // 全角変換を動的inputに適用
   el.querySelectorAll('.zenkaku-input').forEach(inp => bindZenkaku(inp));
+  el.querySelectorAll('.alt-male-btn').forEach(btn => {
+    btn.onclick = () => setAltGenderInline(btn.dataset.player, '牡');
+  });
+  el.querySelectorAll('.alt-female-btn').forEach(btn => {
+    btn.onclick = () => setAltGenderInline(btn.dataset.player, '牝');
+  });
   // 選択済み性別を復元
   restoreAltGenderButtons();
 
@@ -1548,12 +1550,7 @@ function renderConflictPage() {
   el.querySelectorAll('.winner-btn').forEach(btn => {
     btn.onclick = () => setConflictWinner(btn.dataset.mother, btn.dataset.player);
   });
-  el.querySelectorAll('.alt-male-btn').forEach(btn => {
-    btn.onclick = () => setAltGenderInline(btn.dataset.player, '牡');
-  });
-  el.querySelectorAll('.alt-female-btn').forEach(btn => {
-    btn.onclick = () => setAltGenderInline(btn.dataset.player, '牝');
-  });
+
   el.querySelectorAll('.submit-alt-btn').forEach(btn => {
     btn.onclick = () => {
       const player = btn.dataset.player;
@@ -1694,6 +1691,7 @@ async function submitAltInlineWithMother(playerName, conflictMother, mother, gen
   if (formWrap) formWrap.innerHTML = '<div style="font-size:13px;color:var(--green);font-weight:600">✓ 外れ指名「' + mother + '」' + gender + ' を登録しました</div>';
   const { data: freshPicks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
   if (freshPicks) state.picks = freshPicks;
+  state._conflictFormOpen = false;
   renderConflictPage();
 }
 
