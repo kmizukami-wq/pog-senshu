@@ -504,6 +504,18 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
 </div>
 
 <div id="toast"></div>
+<div id="pwModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;align-items:center;justify-content:center;padding:20px">
+  <div class="card" style="width:100%;max-width:320px;padding:24px">
+    <div style="font-size:15px;font-weight:700;margin-bottom:16px">パスワードを入力</div>
+    <input type="password" id="pwInput" placeholder="パスワード" style="font-size:16px;margin-bottom:12px"
+      onkeydown="if(event.key==='Enter')pwModalSubmit()">
+    <div id="pwError" style="color:#c0392b;font-size:12px;min-height:16px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-outline" style="flex:1" onclick="document.getElementById('pwModal').style.display='none'">キャンセル</button>
+      <button class="btn btn-primary" style="flex:1" onclick="pwModalSubmit()">確認</button>
+    </div>
+  </div>
+</div>
 
 <div id="altPickModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:8000;align-items:center;justify-content:center;padding:20px">
   <div class="card" style="width:100%;max-width:400px;padding:20px">
@@ -2016,9 +2028,22 @@ function skipOpening() {
 }
 
 // ── RESUME ───────────────────────────────────────────────────
-async function confirmNewDraft() {
+function confirmNewDraft() {
+  document.getElementById('pwInput').value = '';
+  document.getElementById('pwError').textContent = '';
+  document.getElementById('pwModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('pwInput').focus(), 100);
+}
+
+async function pwModalSubmit() {
+  const pw = document.getElementById('pwInput').value;
+  if (pw !== '0826') {
+    document.getElementById('pwError').textContent = 'パスワードが違います';
+    document.getElementById('pwInput').value = '';
+    return;
+  }
+  document.getElementById('pwModal').style.display = 'none';
   if (!confirm('現在のドラフト会議を終了して新しく作成しますか？\n参加者全員のセッションが閉じられます。')) return;
-  // DBのステータスをclosedに
   await sb.from('draft_sessions').update({ status: 'closed' }).eq('id', state.sessionId);
   handleSessionClosed();
 }
