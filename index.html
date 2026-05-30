@@ -672,15 +672,32 @@ async function loadLobby() {
 function renderLobbyPlayers() {
   const el = document.getElementById('lobbyPlayerList');
   document.getElementById('playerCountBadge').textContent = state.players.length + '人';
-  el.innerHTML = state.players.map((p, i) => `
-    <div class="status-row">
-      <div style="display:flex;align-items:center;gap:8px">
+  el.innerHTML = state.players.map((p, i) => {
+    const isHost = p.name === state.session?.host_name || i === 0;
+    const canDelete = state.isHost && !isHost;
+    return `<div class="status-row">
+      <div style="display:flex;align-items:center;gap:8px;flex:1">
         <div class="avatar" style="width:28px;height:28px;font-size:11px">${i+1}</div>
         <span style="font-size:14px">${p.name}</span>
-        ${p.name === state.session?.host_name || i===0 ? '<span style="font-size:10px;color:var(--gold)">HOST</span>' : ''}
+        ${isHost ? '<span style="font-size:10px;color:var(--gold)">HOST</span>' : ''}
       </div>
-      <span class="si-done" style="width:8px;height:8px;border-radius:50%;background:#27ae60;display:inline-block"></span>
-    </div>`).join('');
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:8px;height:8px;border-radius:50%;background:#27ae60;display:inline-block"></span>
+        ${canDelete ? `<button onclick="removePlayer(${p.id},'${p.name}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;padding:2px 4px;line-height:1" title="削除">✕</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function removePlayer(playerId, playerName) {
+  if (!state.isHost) return;
+  if (!confirm(playerName + ' を削除しますか？')) return;
+  const { error } = await sb.from('draft_players')
+    .delete()
+    .eq('id', playerId)
+    .eq('session_id', state.sessionId);
+  if (error) { toast('削除失敗: ' + error.message); return; }
+  toast(playerName + ' を削除しました');
 }
 
 function copyCode() {
