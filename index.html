@@ -1282,8 +1282,6 @@ function renderConflictPage() {
   const roundPicks = state.picks.filter(p => p.round === round && !p.is_alt);
   let reinputReqs = state.session?.reinput_requests || [];
   if (typeof reinputReqs === 'string') { try { reinputReqs = JSON.parse(reinputReqs); } catch(e) { reinputReqs = []; } }
-  console.log('[conflict] roundPicks:', roundPicks, 'reinputReqs:', reinputReqs);
-
   // 母名+性別で通常被り
   const byMotherGender = {};
   roundPicks.forEach(p => {
