@@ -141,8 +141,10 @@ label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-wei
   font-weight:700;color:rgba(255,255,255,0.85);letter-spacing:5px;text-align:center;margin-bottom:20px;}
 .reveal-horse-box{text-align:center;margin-bottom:18px;}
 .reveal-mother-label{font-size:10px;letter-spacing:3px;color:rgba(240,208,96,0.45);margin-bottom:8px;}
-.reveal-mother{font-family:"Noto Serif JP",serif;font-size:clamp(42px,12vw,64px);
-  font-weight:900;color:#f0d060;line-height:1;letter-spacing:2px;}
+.reveal-mother{font-family:"Noto Serif JP",serif;font-size:clamp(28px,10vw,64px);
+  font-weight:900;color:#f0d060;line-height:1;letter-spacing:1px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  width:100%;text-align:center;display:block;}
 .reveal-gender{margin-top:18px;display:flex;align-items:center;justify-content:center;}
 .reveal-gender-pill{display:inline-flex;align-items:center;gap:8px;
   border:1px solid rgba(184,152,42,0.4);border-radius:4px;padding:8px 24px;}
@@ -1240,7 +1242,12 @@ function doReveal(idx) {
     // 名前＋馬名を即座に同時表示
     document.getElementById('revealRoundLabel').textContent = '第 ' + state.session.current_round + ' 巡';
     document.getElementById('revealOwnerName').textContent = player.name;
-    document.getElementById('revealMother').textContent = pick.mother;
+    const motherEl = document.getElementById('revealMother');
+    motherEl.textContent = pick.mother;
+    // 文字数に応じてフォントサイズを縮小して1行に収める
+    const len = pick.mother.length;
+    const fs = len <= 5 ? 64 : len <= 8 ? 52 : len <= 10 ? 42 : len <= 13 ? 34 : 28;
+    motherEl.style.fontSize = fs + 'px';
     document.getElementById('revealGenderSym').textContent = pick.gender === '牡' ? '♂' : '♀';
     document.getElementById('revealGenderSym').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
     document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '牡馬' : '牝馬';
