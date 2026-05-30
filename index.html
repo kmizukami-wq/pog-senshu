@@ -700,7 +700,7 @@ async function loadPicksAndRender() {
 
 function renderByStatus(status) {
   if (state.isHost) document.getElementById('newDraftBtn').style.display =
-    (status === 'homePage' || status === 'done') ? 'none' : 'block';
+    (status === 'homePage') ? 'none' : 'block';
   if (status === 'lobby') { enterLobby(); return; }
   if (status === 'inputting') { showPage('inputPage'); renderInputPage(); startInputPoller(); return; }
   if (status === 'revealing') {
@@ -711,7 +711,11 @@ function renderByStatus(status) {
     return;
   }
   if (status === 'conflict') { showPage('conflictPage'); renderConflictPage(); startConflictPoller(); return; }
-  if (status === 'done') { showPage('finalPage'); renderFinal(); return; }
+  if (status === 'done') {
+    showPage('finalPage'); renderFinal();
+    if (state.isHost) document.getElementById('newDraftBtn').style.display = 'block';
+    return;
+  }
   if (status === 'closed') { handleSessionClosed(); return; }
 }
 
@@ -1490,23 +1494,7 @@ async function loadConflictWinners() {
   (data || []).forEach(w => { state.conflictWinners[w.mother] = w.winner_name; });
 }
 
-function checkConflictResolved(conflicts) {
-  if (!state.isHost) return;
-  const round = state.session.current_round;
-  // 全被りに勝者が決定済みか
-  const allWinnersSet = conflicts.every(g => state.conflictWinners?.[g[0].mother.toLowerCase()]);
-  if (!allWinnersSet) return;
-  // 敗者全員の外れ指名が入力済みか
-  const losers = [];
-  conflicts.forEach(g => {
-    const winner = state.conflictWinners[g[0].mother.toLowerCase()];
-    g.forEach(p => { if (p.player_name !== winner) losers.push({ name: p.player_name, mother: g[0].mother }); });
-  });
-  const allAltDone = losers.every(l =>
-    state.picks.find(pk => pk.player_name === l.name && pk.round === round && pk.is_alt)
-  );
-  if (allAltDone) setTimeout(() => advanceRound(), 500);
-}
+
 function setAltGender(g) {
   state.conflictGenders[state.myName] = g;
   document.getElementById('altBtnMale').className = 'gender-btn' + (g === '牡' ? ' active-male' : '');
