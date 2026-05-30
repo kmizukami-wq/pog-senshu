@@ -1,10 +1,7 @@
-// POG Draft Service Worker
-const CACHE_NAME = 'pog-draft-v1';
-
-// キャッシュするのはHTMLのみ（Supabaseのリアルタイム通信は常にネットワーク経由）
+const CACHE_NAME = 'pog-draft-v2';
 const STATIC_ASSETS = [
-  '/',
-  '/index.html'
+  '/pog-senshu/',
+  '/pog-senshu/index.html'
 ];
 
 self.addEventListener('install', event => {
@@ -24,13 +21,11 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // Supabase・API通信は常にネットワーク優先
   if (event.request.url.includes('supabase.co') ||
       event.request.url.includes('anthropic.com') ||
       event.request.url.includes('googleapis.com')) {
     return;
   }
-  // HTMLはネットワーク優先、失敗時にキャッシュ
   event.respondWith(
     fetch(event.request)
       .then(response => {
