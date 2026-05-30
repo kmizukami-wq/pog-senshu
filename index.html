@@ -1525,13 +1525,15 @@ async function requestReinput(mother, playerName) {
 
 
 function setAltGenderInline(playerName, gender) {
-  const key = playerName.replace(/\s/g, '_');
   if (!state.conflictGenders) state.conflictGenders = {};
   state.conflictGenders[playerName] = gender;
-  const male = document.getElementById('altMale_' + key);
-  const fem = document.getElementById('altFemale_' + key);
-  if (male) { male.className = 'gender-btn' + (gender === '牡' ? ' active-male' : ''); }
-  if (fem) { fem.className = 'gender-btn' + (gender === '牝' ? ' active-female' : ''); }
+  // data-player 属性で対応するボタンを探してスタイル更新
+  document.querySelectorAll('.alt-male-btn[data-player="' + playerName + '"]').forEach(b => {
+    b.className = 'gender-btn' + (gender === '牡' ? ' active-male' : '');
+  });
+  document.querySelectorAll('.alt-female-btn[data-player="' + playerName + '"]').forEach(b => {
+    b.className = 'gender-btn' + (gender === '牝' ? ' active-female' : '');
+  });
 }
 
 async function submitAltInline(playerName, conflictMother) {
