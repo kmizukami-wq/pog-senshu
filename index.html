@@ -956,10 +956,12 @@ async function verifyMother(name) {
 }
 
 async function submitPick() {
-  const mother = document.getElementById('motherInput').value.trim();
+  const rawMother = document.getElementById('motherInput').value.trim();
+  const mother = toZenkaku(rawMother);
+  document.getElementById('motherInput').value = mother;
   const errEl = document.getElementById('pickError');
   if (!mother) { errEl.textContent = '母名を入力してください'; return; }
-  if (/[A-Za-z0-9]/.test(mother)) { errEl.textContent = '母名は全角で入力してください（半角不可）'; return; }
+
   if (!state.selectedGender) { errEl.textContent = '性別を選択してください'; return; }
   errEl.textContent = '';
   const round = state.session.current_round;
@@ -1219,69 +1221,79 @@ function doReveal(idx) {
   const pick = state.picks.find(p => p.player_name === player.name && p.round === state.session.current_round && !p.is_alt);
   if (!pick) { doReveal(idx + 1); return; }
 
-  const nameTime = state.session.name_time || 3;
-  const horseTime = state.session.horse_time || 3;
+  const nameTime = state.session.name_time || 5;
+  const horseTime = state.session.horse_time || 5;
 
-  // カウントダウン 3・2・1 から開始
-  document.getElementById('revealOverlay').style.display = 'flex';
-  document.getElementById('countdownDisplay').style.display = 'block';
-  document.getElementById('revealContent').style.display = 'none';
+  const showRevealContent = () => {
+    document.getElementById('countdownDisplay').style.display = 'none';
+    document.getElementById('revealContent').style.display = 'block';
 
-  let countVal = 3;
-  document.getElementById('countdownNum').textContent = countVal;
+    // 名前 + 馬名・性別を即表示（nameTime=0想定、または名前表示フェーズをスキップ）
+    document.getElementById('revealRoundLabel').textContent = '第 ' + state.session.current_round + ' 巡';
+    document.getElementById('revealOwnerName').textContent = player.name;
 
-  clearInterval(state.revealTimer);
-  state.revealTimer = setInterval(() => {
-    countVal--;
-    if (countVal > 0) {
-      // 数字を再アニメーション
-      const el = document.getElementById('countdownNum');
-      el.style.animation = 'none';
-      el.textContent = countVal;
-      void el.offsetWidth; // reflow
-      el.style.animation = 'countPulse 0.8s ease';
-    } else {
-      clearInterval(state.revealTimer);
-      // カウントダウン終了 → Step1 表示
-      document.getElementById('countdownDisplay').style.display = 'none';
-      document.getElementById('revealContent').style.display = 'block';
-
-      // Step 1: 名前だけ表示
-      document.getElementById('revealRoundLabel').textContent = '第 ' + state.session.current_round + ' 巡';
-      document.getElementById('revealOwnerName').textContent = player.name;
-      document.getElementById('revealMother').textContent = '？？？';
-      document.getElementById('revealGenderSym').textContent = '？';
-      document.getElementById('revealGenderText').textContent = '？？';
-      document.getElementById('revealGenderWrap').style.opacity = '0.2';
-
+    if (nameTime > 0) {
+      // 名前だけ先に表示
+      document.getElementById('revealMother').textContent = '　';
+      document.getElementById('revealGenderWrap').style.opacity = '0';
+      document.getElementById('revealTimerText').textContent = nameTime + '秒後に馬名公開';
       setTimerBar(nameTime);
       let secs = nameTime;
-      document.getElementById('revealTimerText').textContent = `${secs}秒後に馬名公開`;
       state.revealTimer = setInterval(() => {
         secs--;
-        document.getElementById('revealTimerText').textContent = secs > 0 ? `${secs}秒後に馬名公開` : '公開！';
+        document.getElementById('revealTimerText').textContent = secs > 0 ? secs + '秒後に馬名公開' : '公開！';
         if (secs <= 0) {
           clearInterval(state.revealTimer);
-      // Step 2: 馬名・性別を表示
-      document.getElementById('revealMother').textContent = pick.mother;
-      document.getElementById('revealGenderSym').textContent = pick.gender === '牡' ? '♂' : '♀';
-      document.getElementById('revealGenderSym').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
-      document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '牡馬' : '牝馬';
-      document.getElementById('revealGenderText').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
-      document.getElementById('revealGenderWrap').style.opacity = '1';
-      // YouTube検索結果ページをiframeで表示（APIキー不要）
-      setTimerBar(horseTime);
-      let secs2 = horseTime;
-      document.getElementById('revealTimerText').textContent = `${secs2}秒後に次へ`;
-      state.revealTimer = setInterval(() => {
-        secs2--;
-        document.getElementById('revealTimerText').textContent = secs2 > 0 ? `${secs2}秒後に次へ` : '次へ...';
-        if (secs2 <= 0) { clearInterval(state.revealTimer); doReveal(idx + 1); }
+          showHorse();
+        }
       }, 1000);
+    } else {
+      showHorse();
     }
-  }, 1000);
-    }
-  }, 1000);
+  };
+
+  const showHorse = () => {
+    document.getElementById('revealMother').textContent = pick.mother;
+    document.getElementById('revealGenderSym').textContent = pick.gender === '牡' ? '♂' : '♀';
+    document.getElementById('revealGenderSym').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
+    document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '牡馬' : '牝馬';
+    document.getElementById('revealGenderText').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
+    document.getElementById('revealGenderWrap').style.opacity = '1';
+    setTimerBar(horseTime);
+    let secs2 = horseTime;
+    document.getElementById('revealTimerText').textContent = secs2 + '秒後に次へ';
+    state.revealTimer = setInterval(() => {
+      secs2--;
+      document.getElementById('revealTimerText').textContent = secs2 > 0 ? secs2 + '秒後に次へ' : '次へ...';
+      if (secs2 <= 0) { clearInterval(state.revealTimer); doReveal(idx + 1); }
+    }, 1000);
+  };
+
+  clearInterval(state.revealTimer);
+
+  // カウントダウンは最初の1人目(idx===0)のみ
+  document.getElementById('revealOverlay').style.display = 'flex';
+  if (idx === 0) {
+    document.getElementById('countdownDisplay').style.display = 'block';
+    document.getElementById('revealContent').style.display = 'none';
+    let countVal = 3;
+    document.getElementById('countdownNum').textContent = countVal;
+    state.revealTimer = setInterval(() => {
+      countVal--;
+      if (countVal > 0) {
+        const el = document.getElementById('countdownNum');
+        el.style.animation = 'none';
+        el.textContent = countVal;
+        void el.offsetWidth;
+        el.style.animation = 'countPulse 0.8s ease';
+      } else {
+        clearInterval(state.revealTimer);
+        showRevealContent();
+      }
+    }, 1000);
+  } else {
+    showRevealContent();
+  }
 }
 
 
@@ -1676,7 +1688,7 @@ function setAltGenderInline(playerName, gender) {
 }
 
 async function submitAltInlineWithMother(playerName, conflictMother, mother, gender) {
-  if (/[A-Za-z0-9]/.test(mother)) { toast('母名は全角で入力してください'); return; }
+
   const round = state.session.current_round;
   await sb.from('draft_picks').delete()
     .eq('session_id', state.sessionId).eq('player_name', playerName)
