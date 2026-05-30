@@ -1531,6 +1531,8 @@ function renderConflictPage() {
 
   // 全角変換を動的inputに適用
   el.querySelectorAll('.zenkaku-input').forEach(inp => bindZenkaku(inp));
+  // 選択済み性別を復元
+  restoreAltGenderButtons();
 
   // data属性でイベント設定
   el.querySelectorAll('.approve-btn').forEach(btn => {
@@ -1657,12 +1659,24 @@ async function requestReinput(mother, playerName) {
 function setAltGenderInline(playerName, gender) {
   if (!state.conflictGenders) state.conflictGenders = {};
   state.conflictGenders[playerName] = gender;
-  // data-player 属性で対応するボタンを探してスタイル更新
+  // 全ての対象ボタンをリセットしてから選択状態を反映
   document.querySelectorAll('.alt-male-btn[data-player="' + playerName + '"]').forEach(b => {
     b.className = 'gender-btn' + (gender === '牡' ? ' active-male' : '');
   });
   document.querySelectorAll('.alt-female-btn[data-player="' + playerName + '"]').forEach(b => {
     b.className = 'gender-btn' + (gender === '牝' ? ' active-female' : '');
+  });
+}
+
+function restoreAltGenderButtons() {
+  if (!state.conflictGenders) return;
+  Object.entries(state.conflictGenders).forEach(([playerName, gender]) => {
+    document.querySelectorAll('.alt-male-btn[data-player="' + playerName + '"]').forEach(b => {
+      b.className = 'gender-btn' + (gender === '牡' ? ' active-male' : '');
+    });
+    document.querySelectorAll('.alt-female-btn[data-player="' + playerName + '"]').forEach(b => {
+      b.className = 'gender-btn' + (gender === '牝' ? ' active-female' : '');
+    });
   });
 }
 
