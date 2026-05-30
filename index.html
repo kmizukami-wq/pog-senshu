@@ -2025,6 +2025,10 @@ runOpening();
 // Service Worker 登録（PWA）
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
+    // 古いSWを全て解除してから再登録
+    navigator.serviceWorker.getRegistrations().then(regs => {
+      regs.forEach(reg => reg.unregister());
+    });
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });
 }
