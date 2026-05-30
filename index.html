@@ -1241,7 +1241,7 @@ async function checkConflicts() {
   if (conflicts.length > 0 || genderMismatches.length > 0) {
     await sb.from('draft_sessions').update({
       status: 'conflict',
-      reinput_requests: '[]'
+      reinput_requests: []
     }).eq('id', state.sessionId);
     state.session.status = 'conflict';
     state.conflictWinners = {};
@@ -1280,7 +1280,9 @@ async function advanceRound() {
 function renderConflictPage() {
   const round = state.session.current_round;
   const roundPicks = state.picks.filter(p => p.round === round && !p.is_alt);
-  const reinputReqs = state.session?.reinput_requests || [];
+  let reinputReqs = state.session?.reinput_requests || [];
+  if (typeof reinputReqs === 'string') { try { reinputReqs = JSON.parse(reinputReqs); } catch(e) { reinputReqs = []; } }
+  console.log('[conflict] roundPicks:', roundPicks, 'reinputReqs:', reinputReqs);
 
   // 母名+性別で通常被り
   const byMotherGender = {};
@@ -1433,7 +1435,7 @@ async function approveGenderMismatch(mother) {
   if (!state.isHost) return;
   const reqs = state.session?.reinput_requests || [];
   reqs.push({ mother, action: 'ok' });
-  await sb.from('draft_sessions').update({ reinput_requests: JSON.stringify(reqs) }).eq('id', state.sessionId);
+  await sb.from('draft_sessions').update({ reinput_requests: reqs }).eq('id', state.sessionId);
   state.session.reinput_requests = reqs;
   renderConflictPage();
 }
@@ -1442,7 +1444,7 @@ async function requestReinput(mother, playerName) {
   if (!state.isHost) return;
   const reqs = state.session?.reinput_requests || [];
   reqs.push({ mother, action: 'reinput', player: playerName });
-  await sb.from('draft_sessions').update({ reinput_requests: JSON.stringify(reqs) }).eq('id', state.sessionId);
+  await sb.from('draft_sessions').update({ reinput_requests: reqs }).eq('id', state.sessionId);
   state.session.reinput_requests = reqs;
   // 対象プレイヤーのpickを削除
   await sb.from('draft_picks').delete()
