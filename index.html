@@ -21,6 +21,11 @@
 }
 body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sans-serif;
   background:var(--bg);color:var(--text);min-height:100vh;}
+@keyframes horseRun{0%{transform:scaleX(-1) translateX(0)}100%{transform:scaleX(-1) translateX(calc(100vw + 200px))}}
+@keyframes groupRun{0%{transform:scaleX(-1) translateX(0)}100%{transform:scaleX(-1) translateX(calc(100vw + 400px))}}
+@keyframes gallop{0%,100%{transform:scaleX(-1) translateY(0)}50%{transform:scaleX(-1) translateY(-8px)}}
+@keyframes titleIn{to{opacity:1;transform:translateY(0)}}
+@keyframes skipPulse{0%,100%{opacity:0.4}50%{opacity:0.9}}
 
 /* HEADER */
 .header{background:linear-gradient(135deg,#0d2e1a 0%,#1a4a2e 50%,#0d3d20 100%);
@@ -102,19 +107,22 @@ label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-wei
 #revealOverlay{position:fixed;inset:0;background:rgba(0,0,0,0.95);
   display:none;align-items:center;justify-content:center;z-index:9999;padding:20px;}
 .reveal-card{background:linear-gradient(135deg,#0d2e1a,#1a4a2e);
-  border:2px solid #f5d76e;border-radius:24px;padding:36px 28px;
-  text-align:center;max-width:340px;width:100%;position:relative;overflow:hidden;
+  border:2px solid #f5d76e;border-radius:28px;padding:44px 32px;
+  text-align:center;max-width:420px;width:94%;position:relative;overflow:hidden;
   animation:revealIn 0.5s cubic-bezier(0.34,1.56,0.64,1);}
 @keyframes revealIn{from{transform:scale(0.7);opacity:0}to{transform:scale(1);opacity:1}}
 .reveal-card::before{content:'🐎';font-size:100px;position:absolute;
   bottom:-30px;right:-20px;opacity:0.1;transform:scaleX(-1);}
 .reveal-round-label{color:rgba(245,215,110,0.7);font-size:11px;letter-spacing:3px;margin-bottom:6px;}
-.reveal-owner{color:white;font-size:30px;font-weight:800;margin-bottom:20px;
+.reveal-owner{color:white;font-size:36px;font-weight:800;margin-bottom:20px;
   text-shadow:0 0 20px rgba(245,215,110,0.3);}
 .reveal-horse-box{background:rgba(245,215,110,0.1);border:1px solid rgba(245,215,110,0.3);
   border-radius:14px;padding:20px;margin-bottom:16px;}
-.reveal-mother{color:#f5d76e;font-size:26px;font-weight:800;margin-bottom:10px;}
-.reveal-gender{font-size:18px;font-weight:600;}
+.reveal-mother{color:#f5d76e;font-size:38px;font-weight:900;margin-bottom:12px;letter-spacing:2px;}
+.reveal-gender{font-size:24px;font-weight:700;}
+.countdown-number{font-size:120px;font-weight:900;color:#f5d76e;line-height:1;
+  text-shadow:0 0 40px rgba(245,215,110,0.6);animation:countPulse 0.8s ease;}
+@keyframes countPulse{0%{transform:scale(1.4);opacity:0}50%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
 .reveal-timer{color:rgba(255,255,255,0.4);font-size:13px;}
 .timer-bar{height:3px;background:rgba(255,255,255,0.1);border-radius:2px;margin-top:12px;overflow:hidden;}
 .timer-fill{height:100%;background:#f5d76e;border-radius:2px;transition:width 1s linear;}
@@ -161,6 +169,36 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
 </head>
 <body>
 
+<!-- OPENING ANIMATION -->
+<div id="openingScreen" style="position:fixed;inset:0;background:#0a1f10;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden" onclick="skipOpening()">
+  <!-- 芝エリア -->
+  <div style="position:absolute;bottom:0;left:0;right:0;height:130px;overflow:hidden">
+    <!-- 芝ストライプ -->
+    <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,#1a6b3c 0px,#1a6b3c 40px,#155730 40px,#155730 80px)"></div>
+    <!-- 芝の光沢 -->
+    <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0.3) 0%,transparent 40%)"></div>
+    <!-- ラチ（内柵） -->
+    <div style="position:absolute;top:22px;left:0;right:0;height:3px;background:white;opacity:0.9"></div>
+    <div style="position:absolute;top:18px;left:0;right:0;height:2px;background:rgba(255,255,255,0.4)"></div>
+    <!-- ラチの支柱 -->
+    <div id="railPosts" style="position:absolute;top:14px;left:0;right:0;height:14px"></div>
+
+  </div>
+  <!-- トラックライン（馬が走る高さ） -->
+  <div id="trackLine" style="position:absolute;bottom:103px;left:0;right:0;height:1px;background:transparent"></div>
+  <div id="horse1" style="position:absolute;bottom:108px;right:-80px;font-size:52px;transition:none">🏇</div>
+  <div id="horseGroup" style="position:absolute;bottom:108px;right:-300px;font-size:42px;letter-spacing:-8px;opacity:0;white-space:nowrap;overflow:visible;will-change:right">🏇🏇🏇🏇🏇</div>
+  <div id="horse3" style="position:absolute;bottom:108px;right:-80px;font-size:48px;opacity:0">🏇</div>
+  <div id="titleBlock" style="text-align:center;opacity:0;transform:translateY(20px);transition:all 0.8s ease">
+    <div style="color:#f5d76e;font-size:13px;letter-spacing:8px;margin-bottom:12px;font-weight:600">🏆 WELCOME TO</div>
+    <div style="color:white;font-size:36px;font-weight:900;letter-spacing:4px;line-height:1.2;text-shadow:0 0 30px rgba(245,215,110,0.5)">
+      POG<br>ドラフト会議
+    </div>
+    <div style="margin-top:16px;width:60px;height:2px;background:#f5d76e;margin-left:auto;margin-right:auto;border-radius:2px"></div>
+    <div id="skipBtn" style="margin-top:28px;color:rgba(255,255,255,0.4);font-size:12px;cursor:pointer;letter-spacing:2px" onclick="skipOpening()">TAP TO START →</div>
+  </div>
+</div>
+
 <div class="header">
   <div id="newDraftBtn" style="display:none;position:absolute;top:12px;right:12px">
     <button onclick="confirmNewDraft()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);
@@ -169,7 +207,7 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
     </button>
   </div>
   <h1>🏇 POG ドラフト会議</h1>
-  <div class="header-sub">PICK OF THE GRASS</div>
+  <div class="header-sub" id="draftNameDisplay">PICK OF THE GRASS</div>
   <div id="sessionBadge" style="display:none" class="session-badge"></div>
 </div>
 
@@ -200,6 +238,10 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
     <div class="card">
       <div class="card-title">ドラフト設定</div>
       <div class="field">
+        <label>ドラフト名</label>
+        <input type="text" id="draftName" placeholder="例：2025年POGドラフト">
+      </div>
+      <div class="field">
         <label>あなたの名前（ホスト）</label>
         <input type="text" id="hostName" placeholder="例：田中">
       </div>
@@ -224,11 +266,6 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
       <div class="field">
         <label>馬名・性別表示時間（秒）</label>
         <input type="number" id="horseTime" value="3" min="1" max="30">
-      </div>
-      <div class="field">
-        <label>YouTube Data API キー（任意・映像表示用）</label>
-        <input type="text" id="ytApiKey" placeholder="AIzaSy..." style="font-size:12px">
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">未入力の場合は映像なしで進みます</div>
       </div>
       <button class="btn btn-primary" onclick="createSession()">ドラフトルームを作成 →</button>
       <div id="createError" class="error-text"></div>
@@ -402,19 +439,20 @@ table.st{border-collapse:collapse;font-size:12px;min-width:100%;}
 
 <!-- REVEAL OVERLAY -->
 <div id="revealOverlay">
-  <div class="reveal-card" style="max-width:400px;width:94%">
-    <div class="reveal-round-label" id="revealRoundLabel">第1巡</div>
-    <div class="reveal-owner" id="revealOwnerName">—</div>
-    <div class="reveal-horse-box">
-      <div class="reveal-mother" id="revealMother">—</div>
-      <div class="reveal-gender" id="revealGenderText">—</div>
+  <div class="reveal-card" style="max-width:420px;width:94%">
+    <div id="countdownDisplay" style="display:none;padding:20px 0">
+      <div class="countdown-number" id="countdownNum">3</div>
     </div>
-    <div id="raceVideoWrap" style="display:none;margin:12px 0;border-radius:10px;overflow:hidden;position:relative;padding-bottom:56.25%;height:0">
-      <iframe id="raceVideoFrame" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0"
-        allow="autoplay;encrypted-media;fullscreen" allowfullscreen src="about:blank"></iframe>
+    <div id="revealContent">
+      <div class="reveal-round-label" id="revealRoundLabel">第1巡</div>
+      <div class="reveal-owner" id="revealOwnerName">—</div>
+      <div class="reveal-horse-box">
+        <div class="reveal-mother" id="revealMother">—</div>
+        <div class="reveal-gender" id="revealGenderText">—</div>
+      </div>
+      <div class="reveal-timer" id="revealTimerText">5秒後に次へ</div>
+      <div class="timer-bar"><div class="timer-fill" id="timerFill" style="width:100%"></div></div>
     </div>
-    <div class="reveal-timer" id="revealTimerText">5秒後に次へ</div>
-    <div class="timer-bar"><div class="timer-fill" id="timerFill" style="width:100%"></div></div>
   </div>
 </div>
 
@@ -479,13 +517,13 @@ async function createSession() {
   const { error: se } = await sb.from('draft_sessions').insert({
     id: code,
     host_name: name,
+    draft_name: document.getElementById('draftName')?.value?.trim() || 'POG ドラフト',
     status: 'lobby',
     total_picks: totalPicks,
     reveal_time: nameTime + horseTime,
     reveal_mode: 'sequential',
     name_time: nameTime,
     horse_time: horseTime,
-    yt_api_key: document.getElementById('ytApiKey')?.value?.trim() || '',
     current_round: 1,
     current_player_idx: 0,
     reveal_idx: 0,
@@ -503,6 +541,7 @@ async function createSession() {
   history.replaceState({}, '', '?session=' + code + '&name=' + encodeURIComponent(name));
   document.getElementById('sessionBadge').textContent = 'ルーム: ' + code;
   document.getElementById('sessionBadge').style.display = 'inline-block';
+  updateDraftName();
   enterLobby();
 }
 
@@ -543,6 +582,13 @@ async function joinSession() {
     return;
   }
   enterLobby();
+}
+
+// ── DRAFT NAME ───────────────────────────────────────────────
+function updateDraftName() {
+  const name = state.session?.draft_name || '';
+  const el = document.getElementById('draftNameDisplay');
+  if (el) el.textContent = name || 'POG ドラフト';
 }
 
 // ── LOBBY ────────────────────────────────────────────────────
@@ -1080,8 +1126,6 @@ async function finishReveal() {
 function doReveal(idx) {
   if (idx >= state.players.length) {
     document.getElementById('revealOverlay').style.display = 'none';
-    document.getElementById('raceVideoWrap').style.display = 'none';
-    document.getElementById('raceVideoFrame').src = 'about:blank';
     if (state.isHost) {
       // ホスト：次の巡へ進むボタンを表示
       showPage('revealPage');
@@ -1117,29 +1161,50 @@ function doReveal(idx) {
   const nameTime = state.session.name_time || 3;
   const horseTime = state.session.horse_time || 3;
 
-  // Step 1: 名前だけ表示
-  document.getElementById('revealRoundLabel').textContent = `第${state.session.current_round}巡`;
-  document.getElementById('revealOwnerName').textContent = player.name;
-  document.getElementById('revealMother').textContent = '？？？';
-  document.getElementById('revealGenderText').textContent = '？';
-  document.getElementById('revealGenderText').style.color = 'rgba(255,255,255,0.3)';
+  // カウントダウン 3・2・1 から開始
   document.getElementById('revealOverlay').style.display = 'flex';
+  document.getElementById('countdownDisplay').style.display = 'block';
+  document.getElementById('revealContent').style.display = 'none';
 
-  setTimerBar(nameTime);
-  let secs = nameTime;
-  document.getElementById('revealTimerText').textContent = `${secs}秒後に馬名公開`;
+  let countVal = 3;
+  document.getElementById('countdownNum').textContent = countVal;
+
   clearInterval(state.revealTimer);
   state.revealTimer = setInterval(() => {
-    secs--;
-    document.getElementById('revealTimerText').textContent = secs > 0 ? `${secs}秒後に馬名公開` : '公開！';
-    if (secs <= 0) {
+    countVal--;
+    if (countVal > 0) {
+      // 数字を再アニメーション
+      const el = document.getElementById('countdownNum');
+      el.style.animation = 'none';
+      el.textContent = countVal;
+      void el.offsetWidth; // reflow
+      el.style.animation = 'countPulse 0.8s ease';
+    } else {
       clearInterval(state.revealTimer);
-      // Step 2: 馬名・性別を表示 + レース映像
+      // カウントダウン終了 → Step1 表示
+      document.getElementById('countdownDisplay').style.display = 'none';
+      document.getElementById('revealContent').style.display = 'block';
+
+      // Step 1: 名前だけ表示
+      document.getElementById('revealRoundLabel').textContent = `第${state.session.current_round}巡`;
+      document.getElementById('revealOwnerName').textContent = player.name;
+      document.getElementById('revealMother').textContent = '？？？';
+      document.getElementById('revealGenderText').textContent = '？';
+      document.getElementById('revealGenderText').style.color = 'rgba(255,255,255,0.3)';
+
+      setTimerBar(nameTime);
+      let secs = nameTime;
+      document.getElementById('revealTimerText').textContent = `${secs}秒後に馬名公開`;
+      state.revealTimer = setInterval(() => {
+        secs--;
+        document.getElementById('revealTimerText').textContent = secs > 0 ? `${secs}秒後に馬名公開` : '公開！';
+        if (secs <= 0) {
+          clearInterval(state.revealTimer);
+      // Step 2: 馬名・性別を表示
       document.getElementById('revealMother').textContent = pick.mother;
       document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '♂ 牡馬' : '♀ 牝馬';
       document.getElementById('revealGenderText').style.color = pick.gender === '牡' ? '#60a5fa' : '#f472b6';
       // YouTube検索結果ページをiframeで表示（APIキー不要）
-      loadRaceVideo(pick.mother);
       setTimerBar(horseTime);
       let secs2 = horseTime;
       document.getElementById('revealTimerText').textContent = `${secs2}秒後に次へ`;
@@ -1150,29 +1215,10 @@ function doReveal(idx) {
       }, 1000);
     }
   }, 1000);
+    }
+  }, 1000);
 }
 
-async function loadRaceVideo(motherName) {
-  const wrap = document.getElementById('raceVideoWrap');
-  const frame = document.getElementById('raceVideoFrame');
-  const apiKey = state.session?.yt_api_key || '';
-  if (!apiKey) { wrap.style.display = 'none'; return; }
-  wrap.style.display = 'block';
-  frame.src = 'about:blank';
-  try {
-    const q = encodeURIComponent(motherName + ' 競馬 レース');
-    const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${q}&type=video&maxResults=1&key=${apiKey}`);
-    const data = await res.json();
-    const videoId = data.items?.[0]?.id?.videoId;
-    if (videoId) {
-      frame.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&modestbranding=1&enablejsapi=1`;
-    } else {
-      wrap.style.display = 'none';
-    }
-  } catch(e) {
-    wrap.style.display = 'none';
-  }
-}
 
 function setTimerBar(secs) {
   document.getElementById('timerFill').style.transition = 'none';
@@ -1772,6 +1818,76 @@ function bindZenkaku(el) {
   el.addEventListener('input', () => { applyZenkaku(el); });
 }
 
+// ── OPENING ANIMATION ────────────────────────────────────────
+function runOpening() {
+  // ラチの支柱を生成
+  const posts = document.getElementById('railPosts');
+  if (posts) {
+    let html = '';
+    for (let i = 0; i < 60; i++) {
+      html += '<div style="position:absolute;left:' + (i * 60) + 'px;top:0;width:3px;height:14px;background:white;opacity:0.85;border-radius:1px"></div>';
+    }
+    posts.innerHTML = html;
+  }
+
+  const h1 = document.getElementById('horse1');
+  const hg = document.getElementById('horseGroup');
+  const h3 = document.getElementById('horse3');
+  const title = document.getElementById('titleBlock');
+  const screen = document.getElementById('openingScreen');
+  if (!screen) return;
+
+  // Step1: 1頭が右→左
+  h1.style.transition = 'none';
+  h1.style.right = '-80px';
+  h1.style.opacity = '1';
+    setTimeout(() => {
+    h1.style.transition = 'right 1.8s linear';
+    h1.style.right = 'calc(100vw + 80px)';
+  }, 300);
+
+  // Step2: 馬群が右→左
+  setTimeout(() => {
+    hg.style.opacity = '1';
+    hg.style.right = '-320px';
+        hg.style.transition = 'none';
+    setTimeout(() => {
+      hg.style.transition = 'right 2s linear';
+      hg.style.right = 'calc(100vw + 320px)';
+      setTimeout(() => { hg.style.opacity = '0'; }, 2000);
+    }, 50);
+  }, 2000);
+
+  // Step3: 1頭遅れて右→左
+  setTimeout(() => {
+    h3.style.opacity = '1';
+    h3.style.right = '-80px';
+        h3.style.transition = 'none';
+    setTimeout(() => {
+      h3.style.transition = 'right 2.2s linear';
+      h3.style.right = 'calc(100vw + 80px)';
+    }, 50);
+  }, 3800);
+
+  // Step4: タイトル表示
+  setTimeout(() => {
+    title.style.opacity = '1';
+    title.style.transform = 'translateY(0)';
+    document.getElementById('skipBtn').style.animation = 'skipPulse 2s infinite';
+  }, 5200);
+
+  // 8秒後に自動で閉じる
+  setTimeout(() => skipOpening(), 8500);
+}
+
+function skipOpening() {
+  const screen = document.getElementById('openingScreen');
+  if (!screen) return;
+  screen.style.transition = 'opacity 0.6s ease';
+  screen.style.opacity = '0';
+  setTimeout(() => { screen.style.display = 'none'; }, 600);
+}
+
 // ── RESUME ───────────────────────────────────────────────────
 async function confirmNewDraft() {
   if (!confirm('現在のドラフト会議を終了して新しく作成しますか？\n参加者全員のセッションが閉じられます。')) return;
@@ -1786,6 +1902,8 @@ function handleSessionClosed() {
   clearInterval(state._lobbyPoller);
   clearInterval(state._revealPoller);
   clearInterval(state._conflictPoller);
+  clearInterval(state._statusWatcher);
+  clearInterval(state._reloadWatcher);
   // localStorage・URL・state をリセット
   localStorage.removeItem('pog_session');
   localStorage.removeItem('pog_host_' + state.sessionId);
@@ -1845,6 +1963,7 @@ async function restoreSession(sessionId, name, isHost) {
   }
   document.getElementById('sessionBadge').textContent = 'ルーム: ' + sessionId;
   document.getElementById('sessionBadge').style.display = 'inline-block';
+  updateDraftName();
   // URLも最新に保つ
   history.replaceState({}, '', '?session=' + sessionId + '&name=' + encodeURIComponent(name));
   subscribeReveal();
@@ -1890,6 +2009,9 @@ async function restoreSession(sessionId, name, isHost) {
   // 3. 何もなければホーム画面
   showPage('homePage');
 })();
+
+// オープニングアニメーション実行
+runOpening();
 </script>
 </body>
 </html>
