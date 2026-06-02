@@ -899,7 +899,8 @@ function startInputPoller() {
           state.session.status = 'revealing';
           await loadState();
           renderByStatus('revealing');
-          state._transitioning = false;
+          // 遷移完了後に少し待ってからフラグを解除
+          setTimeout(() => { state._transitioning = false; }, 3000);
         }
       }
     }
@@ -1160,9 +1161,8 @@ function startStatusWatcher() {
         return;
       }
 
-      // conflict ページにいるときは conflictPoller が担当
-      // inputting でラウンドが変わったら再描画
-      if (sess.status === 'inputting' && currentPage === 'inputPage') {
+      // inputting でラウンドが変わった時だけ再描画（revealPageからの遷移は対象外）
+      if (sess.status === 'inputting' && currentPage === 'inputPage' && !state._transitioning) {
         if (sess.current_round !== state.session?.current_round) {
           state.session = sess;
           await loadState();
