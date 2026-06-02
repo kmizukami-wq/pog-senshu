@@ -1009,6 +1009,12 @@ function renderInputPage() {
 // ── EDIT PICK ────────────────────────────────────────────────
 async function editMyPick() {
   const round = state.session.current_round;
+  // 修正前の値を保存
+  const myPick = state.picks.find(p => p.player_name === state.myName && p.round === round && !p.is_alt);
+  const prevMother = myPick?.mother || '';
+  const prevFather = myPick?.father || '';
+  const prevGender = myPick?.gender || '';
+
   // DBから自分のpickを削除して再入力可能にする
   const { error } = await sb.from('draft_picks')
     .delete()
@@ -1017,15 +1023,21 @@ async function editMyPick() {
     .eq('round', round)
     .eq('is_alt', false);
   if (error) { toast('エラー: ' + error.message); return; }
-  // ローカルのstateも更新
+
   state.picks = state.picks.filter(p => !(p.player_name === state.myName && p.round === round && !p.is_alt));
-  state.selectedGender = '';
-  selectGender('');
-  document.getElementById('motherInput').value = '';
-  document.getElementById('verifyStatus').textContent = '';
   await loadState();
   renderInputPage();
-  toast('入力をリセットしました');
+
+  // 元の値をフォームに復元
+  const mi = document.getElementById('motherInput');
+  if (mi) { mi.value = prevMother; bindZenkaku(mi); mi.addEventListener('input', onMotherInput, true); }
+  const fi = document.getElementById('fatherInput');
+  if (fi) { fi.value = prevFather; bindZenkaku(fi); }
+  if (prevGender) {
+    state.selectedGender = prevGender;
+    selectGender(prevGender);
+  }
+  toast('入力をリセットしました。修正してください');
 }
 
 // ── GENDER / INPUT ───────────────────────────────────────────
