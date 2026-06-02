@@ -1073,6 +1073,20 @@ async function submitPick() {
   await loadState();
   renderInputPage();
 
+  // ホストが最後に入力した場合、即座に完了チェック（ポーラー待ち不要）
+  if (state.isHost && state.session?.status === 'inputting') {
+    const r = state.session.current_round;
+    const allDone = state.players.every(p =>
+      state.picks.find(pk => pk.player_name === p.name && pk.round === r && !pk.is_alt)
+    );
+    if (allDone) {
+      clearInterval(state._inputPoller);
+      stopInputTimer();
+      await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
+      state.session.status = 'revealing';
+      renderByStatus('revealing');
+    }
+  }
 }
 
 // ── REVEAL PAGE ──────────────────────────────────────────────
@@ -1316,14 +1330,21 @@ function doReveal(idx) {
     const motherEl = document.getElementById('revealMother');
     motherEl.textContent = pick.mother;
     // 文字数に応じてフォントサイズを縮小して1行に収める
-    const len = pick.mother.length;
-    const fs = len <= 4 ? 60 : len <= 6 ? 50 : len <= 8 ? 40 : len <= 10 ? 32 : len <= 12 ? 26 : 22;
-    motherEl.style.fontSize = fs + 'px';
+    // カードの実際の幅に合わせてフォントサイズを計算
     motherEl.style.whiteSpace = 'nowrap';
-    motherEl.style.overflow = 'hidden';
-    motherEl.style.textOverflow = 'ellipsis';
-    motherEl.style.maxWidth = '100%';
+    motherEl.style.overflow = 'visible';
     motherEl.style.display = 'block';
+    motherEl.style.fontSize = '60px';
+    // 実際の幅を測定して収まるサイズに縮小
+    const cardWidth = (motherEl.closest('.reveal-inner') || motherEl.parentElement)?.offsetWidth || 300;
+    const availableWidth = cardWidth - 32;
+    let fs = 60;
+    motherEl.style.fontSize = fs + 'px';
+    // テキスト幅が収まるまでフォントを縮小
+    while (motherEl.scrollWidth > availableWidth && fs > 18) {
+      fs -= 2;
+      motherEl.style.fontSize = fs + 'px';
+    }
     document.getElementById('revealGenderSym').textContent = pick.gender === '牡' ? '♂' : '♀';
     document.getElementById('revealGenderSym').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
     document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '牡馬' : '牝馬';
