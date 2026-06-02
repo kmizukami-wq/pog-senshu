@@ -522,6 +522,7 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
         <div class="reveal-horse-box">
           <div class="reveal-mother-label">母馬名</div>
           <div class="reveal-mother" id="revealMother">—</div>
+          <div id="revealFather" style="font-size:12px;color:rgba(240,208,96,0.5);letter-spacing:2px;margin-top:6px"></div>
           <div class="reveal-gender" id="revealGenderWrap">
             <div class="reveal-gender-pill">
               <span class="reveal-gender-sym" id="revealGenderSym">♂</span>
@@ -558,6 +559,9 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
     <div style="font-size:12px;color:var(--muted);margin-bottom:16px" id="altModalSub"></div>
     <div class="field" style="margin-bottom:10px">
       <input type="text" id="altModalInput" placeholder="別の母馬名" inputmode="text" style="font-size:16px">
+    </div>
+    <div class="field" style="margin-bottom:10px">
+      <input type="text" id="altModalFatherInput" placeholder="父名（任意）" inputmode="text" style="font-size:16px">
     </div>
     <div class="gender-toggle" style="margin-bottom:12px">
       <button class="gender-btn" id="altModalMale" onclick="altModalSetGender('牡')">♂ 牡</button>
@@ -1360,6 +1364,8 @@ function doReveal(idx) {
     document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '牡馬' : '牝馬';
     document.getElementById('revealGenderText').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
     document.getElementById('revealGenderWrap').style.opacity = '1';
+    const fatherEl = document.getElementById('revealFather');
+    if (fatherEl) fatherEl.textContent = pick.father ? '父：' + pick.father : '';
 
     setTimerBar(horseTime);
     let secs = horseTime;
@@ -1779,12 +1785,14 @@ function openAltModal(playerName, conflictMother) {
   document.getElementById('altModalTitle').textContent = '外れ指名を入力';
   document.getElementById('altModalSub').textContent = '「' + conflictMother + '」は他の人が獲得しました';
   document.getElementById('altModalInput').value = '';
+  document.getElementById('altModalFatherInput').value = '';
   document.getElementById('altModalError').textContent = '';
   document.getElementById('altModalMale').className = 'gender-btn';
   document.getElementById('altModalFemale').className = 'gender-btn';
   const modal = document.getElementById('altPickModal');
   modal.style.display = 'flex';
   bindZenkaku(document.getElementById('altModalInput'));
+  bindZenkaku(document.getElementById('altModalFatherInput'));
   setTimeout(() => document.getElementById('altModalInput').focus(), 100);
 }
 
@@ -1796,6 +1804,7 @@ function altModalSetGender(gender) {
 
 async function altModalSubmit() {
   const mother = toZenkaku(document.getElementById('altModalInput').value.trim());
+  const father = toZenkaku(document.getElementById('altModalFatherInput')?.value?.trim() || '');
   const errEl = document.getElementById('altModalError');
   if (!mother) { errEl.textContent = '母名を入力してください'; return; }
   if (!_altModalGender) { errEl.textContent = '性別を選択してください'; return; }
@@ -1806,7 +1815,7 @@ async function altModalSubmit() {
     .eq('round', round).eq('is_alt', true);
   const { error } = await sb.from('draft_picks').insert({
     session_id: state.sessionId, player_name: _altModalPlayer,
-    round, mother, gender: _altModalGender, is_alt: true
+    round, mother, father, gender: _altModalGender, is_alt: true
   });
   if (error) { errEl.textContent = 'エラー: ' + error.message; return; }
   document.getElementById('altPickModal').style.display = 'none';
