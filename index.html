@@ -894,8 +894,13 @@ function startInputPoller() {
         stopInputTimer();
         const { error } = await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
         console.log('[poller] update result:', error ? 'ERROR: '+error.message : 'OK');
-        state.session.status = 'revealing';
-        renderByStatus('revealing');
+        if (!error) {
+          state.session.status = 'revealing';
+          console.log('[poller] calling renderByStatus revealing');
+          await loadState();
+          renderByStatus('revealing');
+          console.log('[poller] renderByStatus done');
+        }
       }
     }
 
