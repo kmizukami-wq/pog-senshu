@@ -210,7 +210,7 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
 <body>
 
 <!-- OPENING ANIMATION -->
-<div id="openingScreen" style="position:fixed;inset:0;background:#0a1f10;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden" onclick="skipOpening()">
+<div id="openingScreen" style="position:fixed;inset:0;background:#0a1f10;z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;overflow:hidden" onclick="skipOpening()">
   <!-- 芝エリア -->
   <div style="position:absolute;bottom:0;left:0;right:0;height:130px;overflow:hidden">
     <!-- 芝ストライプ -->
@@ -858,6 +858,7 @@ async function loadState() {
 function startInputPoller() {
   if (state._inputPoller) clearInterval(state._inputPoller);
   startInputTimer();
+  if (!state.isHost) return; // ゲストはstatusWatcherが担当
   state._inputPoller = setInterval(async () => {
     const currentPage = document.querySelector('.page.active')?.id;
     if (currentPage !== 'inputPage') { clearInterval(state._inputPoller); return; }
@@ -895,7 +896,7 @@ function startInputPoller() {
     }
 
     if (!state._standingsOpen) renderInputPage();
-  }, 2000);
+  }, 1000);
 }
 
 async function loadPicksAndRender() {
@@ -1085,13 +1086,20 @@ async function submitPick() {
   await loadState();
   renderInputPage();
 
-  // ホストが最後に入力した場合、即座に完了チェック（ポーラー待ち不要）
-  if (state.isHost && state.session?.status === 'inputting') {
+  // ホスト・ゲスト問わず即座に全員完了チェック
+  if (state.session?.status === 'inputting') {
     const r = state.session.current_round;
+    // 最新のplayers・picksをDBから取得して判定
+    const [freshPlayers, freshPicks] = await Promise.all([
+      sb.from('draft_players').select('*').eq('session_id', state.sessionId).order('order_idx'),
+      sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at')
+    ]);
+    if (freshPlayers.data) state.players = freshPlayers.data;
+    if (freshPicks.data) state.picks = freshPicks.data;
     const allDone = state.players.every(p =>
       state.picks.find(pk => pk.player_name === p.name && pk.round === r && !pk.is_alt)
     );
-    if (allDone) {
+    if (allDone && state.isHost) {
       clearInterval(state._inputPoller);
       stopInputTimer();
       await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
@@ -2071,6 +2079,7 @@ function bindZenkaku(el) {
 
 // ── OPENING ANIMATION ────────────────────────────────────────
 function runOpening() {
+  document.getElementById('openingScreen').style.display = 'flex';
   // ラチの支柱を生成
   const posts = document.getElementById('railPosts');
   if (posts) {
