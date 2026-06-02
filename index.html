@@ -883,9 +883,11 @@ function startInputPoller() {
     // 全員完了チェック → ホストが revealing に更新
     const round = state.session?.current_round;
     if (round) {
-      const allDone = state.players.every(p =>
+      const donePlayers = state.players.filter(p =>
         state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)
       );
+      const allDone = donePlayers.length === state.players.length;
+      console.log(`[poller] round=${round} done=${donePlayers.length}/${state.players.length} status=${state.session?.status}`);
       if (allDone && state.session?.status === 'inputting' && state.isHost) {
         clearInterval(state._inputPoller);
         stopInputTimer();
