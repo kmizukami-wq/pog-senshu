@@ -887,11 +887,13 @@ function startInputPoller() {
         state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)
       );
       const allDone = donePlayers.length === state.players.length;
-      console.log(`[poller] round=${round} done=${donePlayers.length}/${state.players.length} status=${state.session?.status}`);
+      console.log(`[poller] round=${round} done=${donePlayers.length}/${state.players.length} status=${state.session?.status} isHost=${state.isHost}`);
       if (allDone && state.session?.status === 'inputting' && state.isHost) {
+        console.log('[poller] ALL DONE → updating to revealing');
         clearInterval(state._inputPoller);
         stopInputTimer();
-        await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
+        const { error } = await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
+        console.log('[poller] update result:', error ? 'ERROR: '+error.message : 'OK');
         state.session.status = 'revealing';
         renderByStatus('revealing');
       }
@@ -1175,6 +1177,9 @@ function startConflictPoller() {
   state._conflictPoller = setInterval(async () => {
     const currentPage = document.querySelector('.page.active')?.id;
     if (currentPage !== 'conflictPage') { clearInterval(state._conflictPoller); return; }
+    // 操作中（モーダル・修正フォーム表示中）は再描画しない
+    if (document.getElementById('altPickModal')?.style.display === 'flex') return;
+    if (document.querySelector('.fg-confirm')) return;
 
     const [winnersRes, picksRes, sessRes] = await Promise.all([
       sb.from('conflict_winners').select('*').eq('session_id', state.sessionId).eq('round', state.session?.current_round),
@@ -1985,7 +1990,7 @@ function renderStandings() {
       const alt = state.picks.find(pk => pk.player_name === p.name && pk.round === r && pk.is_alt);
       if (pick) {
         const tag = pick.gender === '牡' ? '<span class="tag tag-male">牡</span>' : '<span class="tag tag-female">牝</span>';
-        html += `<td class="pick-cell">${pick.mother} ${tag}${pick.father ? `<br><span style="font-size:10px;color:var(--muted)">父：${pick.father}</span>` : ''}${alt ? `<br><span style="font-size:10px;color:var(--muted)">外：${alt.mother}</span>` : ''}</td>`;
+        html += `<td class="pick-cell">${pick.mother} ${tag}${pick.father ? `<br><span style="font-size:10px;color:var(--muted)">父：${pick.father}</span>` : ''}${alt ? `<br><span style="font-size:10px;color:var(--muted)">外：${alt.mother}${alt.father ? '（父：'+alt.father+'）' : ''}</span>` : ''}</td>`;
       } else {
         html += `<td style="color:var(--subtle);font-size:12px">—</td>`;
       }
