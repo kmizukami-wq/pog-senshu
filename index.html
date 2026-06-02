@@ -41,6 +41,9 @@
 }
 body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sans-serif;
   background:var(--bg);color:var(--text);min-height:100vh;}
+#inputTimerDisplay.timer-warning{color:#e67e22 !important;animation:timerPulse 1s infinite;}
+#inputTimerDisplay.timer-danger{color:#c0392b !important;animation:timerPulse 0.5s infinite;}
+@keyframes timerPulse{0%,100%{opacity:1}50%{opacity:0.4}}
 .footer-credit{text-align:center;padding:20px 0 max(20px,env(safe-area-inset-bottom));
   font-size:11px;color:var(--subtle);letter-spacing:2px;font-weight:500;}
 @keyframes horseRun{0%{transform:scaleX(-1) translateX(0)}100%{transform:scaleX(-1) translateX(calc(100vw + 200px))}}
@@ -297,6 +300,11 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
         </select>
       </div>
       <div class="field">
+        <label>指名入力タイマー（分）</label>
+        <input type="text" id="inputTimer" value="5" inputmode="numeric" style="font-size:16px">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">各巡の入力制限時間（0で無制限）</div>
+      </div>
+      <div class="field">
         <label>名前表示時間（秒）</label>
         <input type="text" id="nameTime" value="5" min="1" max="30">
       </div>
@@ -371,8 +379,18 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
     <div style="text-align:center;margin-bottom:6px">
       <span class="round-pill" id="roundLabel">第1巡</span>
     </div>
-    <div style="text-align:right;margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div id="inputTimerDisplay" style="font-size:13px;font-weight:700;color:var(--green);min-width:60px"></div>
       <button class="btn btn-outline btn-sm" onclick="state._standingsOpen=true;showPage('standingsPage');renderStandings()" style="display:inline-block;width:auto">📋 状況</button>
+    </div>
+    <div id="hostTimerControl" style="display:none;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;background:var(--gold-l);border:1px solid #e8c84a;border-radius:8px;padding:8px 12px">
+        <span style="font-size:12px;color:#7a5a0a;flex:1">⏱ タイマー変更</span>
+        <input type="text" id="timerChangeInput" inputmode="numeric" value="5"
+          style="width:52px;font-size:15px;padding:4px 8px;text-align:center;border-radius:6px;border:1px solid #e8c84a">
+        <span style="font-size:12px;color:#7a5a0a">分</span>
+        <button class="btn btn-outline btn-sm" onclick="changeInputTimer()" style="padding:4px 10px;font-size:12px">変更</button>
+      </div>
     </div>
     <div id="inputDots" class="dots" style="margin-bottom:14px"></div>
 
@@ -609,6 +627,7 @@ async function createSession() {
     id: code,
     host_name: name,
     draft_name: document.getElementById('draftName')?.value?.trim() || 'POG ドラフト',
+    input_timer: parseInt(document.getElementById('inputTimer')?.value || '5') * 60,
     status: 'lobby',
     total_picks: totalPicks,
     reveal_time: nameTime + horseTime,
@@ -830,6 +849,7 @@ async function loadState() {
 
 function startInputPoller() {
   if (state._inputPoller) clearInterval(state._inputPoller);
+  startInputTimer();
   state._inputPoller = setInterval(async () => {
     const currentPage = document.querySelector('.page.active')?.id;
     if (currentPage !== 'inputPage') { clearInterval(state._inputPoller); return; }
@@ -859,6 +879,7 @@ function startInputPoller() {
       );
       if (allDone && state.session?.status === 'inputting' && state.isHost) {
         clearInterval(state._inputPoller);
+        stopInputTimer();
         await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
         state.session.status = 'revealing';
         renderByStatus('revealing');
@@ -931,6 +952,16 @@ function renderInputPage() {
     document.getElementById('myAvatar').textContent = state.myName.slice(0,1);
     const sub = document.getElementById('myTurnSub');
     if (sub) sub.textContent = '第' + round + '巡を入力してください';
+  }
+  // ホストのみタイマー変更UIを表示
+  const htc = document.getElementById('hostTimerControl');
+  if (htc) {
+    htc.style.display = state.isHost ? 'block' : 'none';
+    if (state.isHost) {
+      const timerMin = Math.round((state.session?.input_timer || 300) / 60);
+      const ti = document.getElementById('timerChangeInput');
+      if (ti) ti.value = timerMin;
+    }
   }
 
   // round status list
@@ -1286,8 +1317,13 @@ function doReveal(idx) {
     motherEl.textContent = pick.mother;
     // 文字数に応じてフォントサイズを縮小して1行に収める
     const len = pick.mother.length;
-    const fs = len <= 5 ? 64 : len <= 8 ? 52 : len <= 10 ? 42 : len <= 13 ? 34 : 28;
+    const fs = len <= 4 ? 60 : len <= 6 ? 50 : len <= 8 ? 40 : len <= 10 ? 32 : len <= 12 ? 26 : 22;
     motherEl.style.fontSize = fs + 'px';
+    motherEl.style.whiteSpace = 'nowrap';
+    motherEl.style.overflow = 'hidden';
+    motherEl.style.textOverflow = 'ellipsis';
+    motherEl.style.maxWidth = '100%';
+    motherEl.style.display = 'block';
     document.getElementById('revealGenderSym').textContent = pick.gender === '牡' ? '♂' : '♀';
     document.getElementById('revealGenderSym').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
     document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '牡馬' : '牝馬';
@@ -2063,6 +2099,56 @@ function skipOpening() {
   setTimeout(() => { screen.style.display = 'none'; }, 600);
 }
 
+// ── INPUT TIMER ──────────────────────────────────────────────
+let _inputTimerInterval = null;
+let _inputTimerEnd = null;
+
+function startInputTimer() {
+  clearInterval(_inputTimerInterval);
+  const timerSecs = state.session?.input_timer || 0;
+  if (timerSecs <= 0) {
+    const el = document.getElementById('inputTimerDisplay');
+    if (el) el.textContent = '';
+    return;
+  }
+  _inputTimerEnd = Date.now() + timerSecs * 1000;
+  updateInputTimerDisplay();
+  _inputTimerInterval = setInterval(updateInputTimerDisplay, 1000);
+}
+
+function updateInputTimerDisplay() {
+  const el = document.getElementById('inputTimerDisplay');
+  if (!el) return;
+  const remaining = Math.max(0, Math.ceil((_inputTimerEnd - Date.now()) / 1000));
+  const min = Math.floor(remaining / 60);
+  const sec = remaining % 60;
+  el.textContent = '⏱ ' + min + ':' + String(sec).padStart(2, '0');
+  el.className = remaining <= 30 ? 'timer-danger' : remaining <= 60 ? 'timer-warning' : '';
+  if (remaining <= 0) {
+    clearInterval(_inputTimerInterval);
+    el.textContent = '⏱ 0:00';
+    toast('⏰ 入力時間終了！');
+  }
+}
+
+function stopInputTimer() {
+  clearInterval(_inputTimerInterval);
+  _inputTimerInterval = null;
+  const el = document.getElementById('inputTimerDisplay');
+  if (el) el.textContent = '';
+}
+
+async function changeInputTimer() {
+  if (!state.isHost) return;
+  const val = parseInt(document.getElementById('timerChangeInput')?.value || '0');
+  if (isNaN(val) || val < 0) { toast('正しい分数を入力してください'); return; }
+  const secs = val * 60;
+  await sb.from('draft_sessions').update({ input_timer: secs }).eq('id', state.sessionId);
+  state.session.input_timer = secs;
+  startInputTimer();
+  toast('タイマーを ' + val + ' 分に変更しました');
+}
+
 // ── RESUME ───────────────────────────────────────────────────
 function showCreatePageWithPW() {
   document.getElementById('pwInput').value = '';
@@ -2215,8 +2301,14 @@ async function restoreSession(sessionId, name, isHost) {
   showPage('homePage');
 })();
 
-// オープニングアニメーション実行
-runOpening();
+// オープニングアニメーション：初回のみ表示
+if (!sessionStorage.getItem('pog_opening_shown')) {
+  sessionStorage.setItem('pog_opening_shown', '1');
+  runOpening();
+} else {
+  const screen = document.getElementById('openingScreen');
+  if (screen) screen.style.display = 'none';
+}
 
 // Service Worker 登録（PWA）
 if ('serviceWorker' in navigator) {
