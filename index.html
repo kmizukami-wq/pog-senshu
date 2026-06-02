@@ -860,6 +860,7 @@ function startInputPoller() {
   startInputTimer();
   if (!state.isHost) return; // ゲストはstatusWatcherが担当
   state._inputPoller = setInterval(async () => {
+    if (state._transitioning) { clearInterval(state._inputPoller); return; }
     const currentPage = document.querySelector('.page.active')?.id;
     if (currentPage !== 'inputPage') { clearInterval(state._inputPoller); return; }
 
@@ -883,23 +884,22 @@ function startInputPoller() {
     // 全員完了チェック → ホストが revealing に更新
     const round = state.session?.current_round;
     if (round) {
-      const donePlayers = state.players.filter(p =>
+      const allDone = state.players.every(p =>
         state.picks.find(pk => pk.player_name === p.name && pk.round === round && !pk.is_alt)
       );
-      const allDone = donePlayers.length === state.players.length;
-      console.log(`[poller] round=${round} done=${donePlayers.length}/${state.players.length} status=${state.session?.status} isHost=${state.isHost}`);
       if (allDone && state.session?.status === 'inputting' && state.isHost) {
-        console.log('[poller] ALL DONE → updating to revealing');
         clearInterval(state._inputPoller);
         stopInputTimer();
         const { error } = await sb.from('draft_sessions').update({ status: 'revealing', reveal_idx: 0 }).eq('id', state.sessionId);
-        console.log('[poller] update result:', error ? 'ERROR: '+error.message : 'OK');
         if (!error) {
+          // statusWatcher も止めて二重遷移を防ぐ
+          state._transitioning = true;
+          clearInterval(state._statusWatcher);
+          clearInterval(state._inputPoller);
           state.session.status = 'revealing';
-          console.log('[poller] calling renderByStatus revealing');
           await loadState();
           renderByStatus('revealing');
-          console.log('[poller] renderByStatus done');
+          state._transitioning = false;
         }
       }
     }
@@ -1136,6 +1136,7 @@ function startStatusWatcher() {
 
   state._statusWatcher = setInterval(async () => {
     if (!state.sessionId) return;
+    if (state._transitioning) return;
     try {
       const { data: sess } = await sb.from('draft_sessions')
         .select('*')
