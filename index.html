@@ -3,7 +3,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🏇 POG ドラフト会議</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700;900&family=Cormorant+Garamond:wght@600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
 <link rel="manifest" href="manifest.json">
@@ -90,8 +90,8 @@ label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-wei
 
 /* GENDER TOGGLE */
 .gender-toggle{display:flex;gap:8px;}
-.gender-btn{flex:1;padding:12px;border-radius:var(--radius-sm);border:1px solid var(--border);
-  background:var(--bg);color:var(--text);font-size:15px;cursor:pointer;transition:all 0.15s;font-weight:500;}
+.gender-btn{flex:1;padding:14px;border-radius:var(--radius-sm);border:1px solid var(--border);
+  background:var(--bg);color:var(--text);font-size:15px;cursor:pointer;transition:all 0.15s;font-weight:500;min-height:48px;}
 .gender-btn.active-male{background:#1e40af;color:white;border-color:#1e40af;}
 .gender-btn.active-female{background:#9d174d;color:white;border-color:#9d174d;}
 
@@ -137,8 +137,9 @@ label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-wei
 .reveal-round-label{font-family:"Bebas Neue",sans-serif;font-size:11px;letter-spacing:5px;
   color:#b8982a;display:flex;align-items:center;gap:10px;margin-bottom:18px;}
 .reveal-round-label::before,.reveal-round-label::after{content:"";flex:1;height:1px;background:rgba(184,152,42,0.3);}
-.reveal-owner{font-family:"Cormorant Garamond",serif;font-size:clamp(22px,6vw,28px);
-  font-weight:700;color:rgba(255,255,255,0.85);letter-spacing:5px;text-align:center;margin-bottom:20px;}
+.reveal-owner{font-family:"Cormorant Garamond",serif;font-size:clamp(16px,4.5vw,28px);
+  font-weight:700;color:rgba(255,255,255,0.85);letter-spacing:2px;text-align:center;margin-bottom:20px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .reveal-horse-box{text-align:center;margin-bottom:18px;}
 .reveal-mother-label{font-size:10px;letter-spacing:3px;color:rgba(240,208,96,0.45);margin-bottom:8px;}
 .reveal-mother{font-family:"Noto Serif JP",serif;font-size:clamp(28px,10vw,64px);
@@ -297,11 +298,11 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
       </div>
       <div class="field">
         <label>名前表示時間（秒）</label>
-        <input type="number" id="nameTime" value="5" min="1" max="30">
+        <input type="text" id="nameTime" value="5" min="1" max="30">
       </div>
       <div class="field">
         <label>馬名・性別表示時間（秒）</label>
-        <input type="number" id="horseTime" value="5" min="1" max="30">
+        <input type="text" id="horseTime" value="5" min="1" max="30">
       </div>
       <button class="btn btn-primary" onclick="createSession()">ドラフトルームを作成 →</button>
       <div id="createError" class="error-text"></div>
@@ -386,7 +387,7 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
       </div>
       <div class="field">
         <label>母馬名</label>
-        <input type="text" id="motherInput" placeholder="例：ウオッカ" inputmode="text">
+        <input type="text" id="motherInput" placeholder="例：ウオッカ" inputmode="text" style="font-size:16px">
         <div class="verify-status" id="verifyStatus"></div>
       </div>
       <div class="field">
@@ -741,7 +742,7 @@ function renderLobbyPlayers() {
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span style="width:8px;height:8px;border-radius:50%;background:#27ae60;display:inline-block"></span>
-        ${canDelete ? `<button onclick="removePlayer(${p.id},'${p.name}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;padding:2px 4px;line-height:1" title="削除">✕</button>` : ''}
+        ${canDelete ? `<button onclick="removePlayer(${p.id},'${p.name}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:18px;padding:8px;line-height:1;min-width:36px;min-height:36px" title="削除">✕</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -1073,7 +1074,7 @@ function startStatusWatcher() {
       const expectedPage = pageForStatus[sess.status];
 
       // 外れ指名フォームが表示中はステータスウォッチャーも停止
-      if (state._conflictFormOpen || state._standingsOpen) return;
+      if (state._standingsOpen) return;
 
       // 現在のページとDBのステータスが食い違っていたら遷移
       // ただしstandingsPageは全ステータスで許容する
@@ -1129,9 +1130,7 @@ function startConflictPoller() {
     }
 
     // 入力フォーム・修正フォームが表示中は再描画しない
-    if (!state._conflictFormOpen) {
-      renderConflictPage();
-    }
+    renderConflictPage();
   }, 1500);
 }
 
@@ -1790,8 +1789,7 @@ async function submitAltInlineWithMother(playerName, conflictMother, mother, gen
   if (formWrap) formWrap.innerHTML = '<div style="font-size:13px;color:var(--green);font-weight:600">✓ 外れ指名「' + mother + '」' + gender + ' を登録しました</div>';
   const { data: freshPicks } = await sb.from('draft_picks').select('*').eq('session_id', state.sessionId).order('created_at');
   if (freshPicks) state.picks = freshPicks;
-  state._conflictFormOpen = false;
-  renderConflictPage();
+    renderConflictPage();
 }
 
 async function submitAltInline(playerName, conflictMother) {
@@ -1882,7 +1880,19 @@ function renderStandings() {
   let html = `<table class="st"><thead><tr><th>巡</th>`;
   state.players.forEach(p => { html += `<th>${p.name}</th>`; });
   html += '</tr></thead><tbody>';
+  const currentRound = state.session?.current_round || 1;
+  const status = state.session?.status;
+  // 表示する最大ラウンド：inputting/conflict中は前巡まで、それ以外は全巡
+  const maxDisplayRound = (status === 'inputting' || status === 'conflict') ? currentRound - 1 : total;
+
   for (let r = 1; r <= total; r++) {
+    // 現在入力中の巡は非表示
+    if (r > maxDisplayRound) {
+      html += `<tr><td><span class="round-pill" style="font-size:10px;padding:2px 8px">第${r}巡</span></td>`;
+      state.players.forEach(() => { html += '<td style="color:var(--muted);font-size:11px">—</td>'; });
+      html += '</tr>';
+      continue;
+    }
     html += `<tr><td><span class="round-pill" style="font-size:10px;padding:2px 8px">第${r}巡</span></td>`;
     state.players.forEach(p => {
       const pick = state.picks.find(pk => pk.player_name === p.name && pk.round === r && !pk.is_alt);
