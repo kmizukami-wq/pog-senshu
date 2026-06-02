@@ -409,6 +409,10 @@ table.st{border-collapse:collapse;font-size:13px;min-width:max(100%, calc(120px 
         <div class="verify-status" id="verifyStatus"></div>
       </div>
       <div class="field">
+        <label>父名（任意）</label>
+        <input type="text" id="fatherInput" placeholder="例：ディープインパクト" inputmode="text" style="font-size:16px">
+      </div>
+      <div class="field">
         <label>性別</label>
         <div class="gender-toggle">
           <button class="gender-btn" id="btnMale" onclick="selectGender('牡')">♂ 牡</button>
@@ -1056,9 +1060,11 @@ async function submitPick() {
   errEl.textContent = '';
   const round = state.session.current_round;
 
+  const fatherRaw = document.getElementById('fatherInput')?.value?.trim() || '';
+  const father = toZenkaku(fatherRaw);
   const { error } = await sb.from('draft_picks').insert({
     session_id: state.sessionId, player_name: state.myName,
-    round, mother, gender: state.selectedGender, is_alt: false
+    round, mother, gender: state.selectedGender, father, is_alt: false
   });
   if (error) { errEl.textContent = '登録エラー: ' + error.message; return; }
 
@@ -1066,6 +1072,8 @@ async function submitPick() {
   mi.value = '';
   bindZenkaku(mi);
   mi.addEventListener('input', onMotherInput, true);
+  const fi = document.getElementById('fatherInput');
+  if (fi) { fi.value = ''; bindZenkaku(fi); }
   document.getElementById('verifyStatus').textContent = '';
   state.selectedGender = '';
   selectGender('');
@@ -1330,21 +1338,23 @@ function doReveal(idx) {
     const motherEl = document.getElementById('revealMother');
     motherEl.textContent = pick.mother;
     // 文字数に応じてフォントサイズを縮小して1行に収める
-    // カードの実際の幅に合わせてフォントサイズを計算
-    motherEl.style.whiteSpace = 'nowrap';
-    motherEl.style.overflow = 'visible';
-    motherEl.style.display = 'block';
-    motherEl.style.fontSize = '60px';
-    // 実際の幅を測定して収まるサイズに縮小
+    // canvas で文字幅を計測してフォントサイズを決定
     const cardWidth = (motherEl.closest('.reveal-inner') || motherEl.parentElement)?.offsetWidth || 300;
-    const availableWidth = cardWidth - 32;
+    const availableWidth = cardWidth - 40;
+    const measureCanvas = document.createElement('canvas');
+    const ctx = measureCanvas.getContext('2d');
     let fs = 60;
-    motherEl.style.fontSize = fs + 'px';
-    // テキスト幅が収まるまでフォントを縮小
-    while (motherEl.scrollWidth > availableWidth && fs > 18) {
+    while (fs > 16) {
+      ctx.font = '900 ' + fs + 'px "Noto Serif JP", serif';
+      const w = ctx.measureText(pick.mother).width;
+      if (w <= availableWidth) break;
       fs -= 2;
-      motherEl.style.fontSize = fs + 'px';
     }
+    motherEl.style.fontSize = fs + 'px';
+    motherEl.style.whiteSpace = 'nowrap';
+    motherEl.style.display = 'block';
+    motherEl.style.overflow = 'hidden';
+    motherEl.style.textOverflow = 'clip';
     document.getElementById('revealGenderSym').textContent = pick.gender === '牡' ? '♂' : '♀';
     document.getElementById('revealGenderSym').style.color = pick.gender === '牡' ? '#93c5fd' : '#f9a8d4';
     document.getElementById('revealGenderText').textContent = pick.gender === '牡' ? '牡馬' : '牝馬';
@@ -1956,7 +1966,7 @@ function renderStandings() {
       const alt = state.picks.find(pk => pk.player_name === p.name && pk.round === r && pk.is_alt);
       if (pick) {
         const tag = pick.gender === '牡' ? '<span class="tag tag-male">牡</span>' : '<span class="tag tag-female">牝</span>';
-        html += `<td class="pick-cell">${pick.mother} ${tag}${alt ? `<br><span style="font-size:10px;color:var(--muted)">外：${alt.mother}</span>` : ''}</td>`;
+        html += `<td class="pick-cell">${pick.mother} ${tag}${pick.father ? `<br><span style="font-size:10px;color:var(--muted)">父：${pick.father}</span>` : ''}${alt ? `<br><span style="font-size:10px;color:var(--muted)">外：${alt.mother}</span>` : ''}</td>`;
       } else {
         html += `<td style="color:var(--subtle);font-size:12px">—</td>`;
       }
@@ -1980,8 +1990,8 @@ function exportCSV() {
   let row1 = 'No.';
   let row2 = '-';
   state.players.forEach((p, i) => {
-    row1 += `,${i+1}人目（${p.name}）,`;
-    row2 += `,性別,母名`;
+    row1 += `,${i+1}人目（${p.name}）,,`;
+    row2 += `,性別,母名,父名`;
   });
 
   let csv = row1 + '\n' + row2 + '\n';
@@ -1993,7 +2003,7 @@ function exportCSV() {
       const alt  = state.picks.find(pk => pk.player_name === p.name && pk.round === r && pk.is_alt);
       // 外れ指名があればそちらをメイン表示、備考は不要
       const final = alt || pick;
-      row += final ? `,${final.gender},${final.mother}` : `,,`;
+      row += final ? `,${final.gender},${final.mother},${final.father||''}` : `,,,`;
     });
     csv += row + '\n';
   }
