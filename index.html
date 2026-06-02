@@ -607,8 +607,21 @@ function showPage(id) {
 
 function goBack() {
   state._standingsOpen = false;
-  showPage(state.prevPage || 'inputPage');
-  if (state.prevPage === 'inputPage') renderInputPage();
+  const status = state.session?.status;
+  // ステータスに応じた正しいページに戻る
+  if (status === 'done') {
+    showPage('finalPage');
+    renderFinal();
+  } else if (status === 'revealing') {
+    showPage('revealPage');
+    renderRevealPage();
+  } else if (status === 'conflict') {
+    showPage('conflictPage');
+    renderConflictPage();
+  } else {
+    showPage(state.prevPage || 'inputPage');
+    if (state.prevPage === 'inputPage') renderInputPage();
+  }
 }
 
 // ── TOAST ────────────────────────────────────────────────────
